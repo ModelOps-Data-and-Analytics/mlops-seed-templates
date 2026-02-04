@@ -235,16 +235,10 @@ class RepoSyncStack(Stack):
             assumed_by=iam.ServicePrincipal("events.amazonaws.com")
         )
         
-        github_token_secret = secretsmanager.Secret(
+        # Use existing secret instead of creating a new one
+        github_token_secret = secretsmanager.Secret.from_secret_name_v2(
             self, 'GitHubTokenSecret',
-            secret_name=config.github_token_secret_name,
-            description='GitHub Personal Access Token for repository access',
-            generate_secret_string=secretsmanager.SecretStringGenerator(
-                exclude_characters='/@"\'\\',
-                generate_string_key='token',
-                secret_string_template='{"token":""}',
-                include_space=False
-            )
+            secret_name=config.github_token_secret_name
         )
 
         git_layer = GitLayerConstruct(self, "GitLayer")

@@ -35,12 +35,12 @@ class GitConfig:
 
 # Single configuration instance
 config = GitConfig(
-    public_smus_aiops_org="aws-samples",
-    public_smus_aiops_org_repo="sample-smus-aiops",
+    public_smus_aiops_org="ModelOps-Data-and-Analytics",
+    public_smus_aiops_org_repo="mlops-seed-templates",
     public_smus_aiops_org_repo_folder="aiops-seed-code",
     public_repo_branch="main",
     oidc_role_github_workflow="aiops-smus-github-action",
-    private_github_organization ="smus-test", # IMPORTANT: This should match the GitHub organization configured in your AWS CodeStar Connections and we will be creating our build and deploy repo under this git organization.
+    private_github_organization ="ModelOps-Data-and-Analytics", # IMPORTANT: This should match the GitHub organization configured in your AWS CodeStar Connections and we will be creating our build and deploy repo under this git organization.
     private_deploy_repo_default_branch="main",
-    github_token_secret_name="ml-ops-smus-github-token",
+    github_token_secret_name="ml-ops-smus-github-token-v2",
 )

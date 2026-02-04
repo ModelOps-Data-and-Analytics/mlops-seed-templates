@@ -1,0 +1,83 @@
+# Knowledge Base Configuration for Bedrock Agent
+# This file defines the knowledge base setup for RAG capabilities
+
+knowledge_base:
+  name: "customer-service-kb"
+  description: "Knowledge base containing product information, policies, and FAQs"
+  
+  # Embedding model configuration
+  embedding_model:
+    model_id: "amazon.titan-embed-text-v2:0"
+    # Alternative: "cohere.embed-english-v3" or "cohere.embed-multilingual-v3"
+  
+  # Data source configuration
+  data_source:
+    type: "S3"
+    s3_configuration:
+      # S3 URI will be constructed from project configuration
+      # Format: s3://{bucket}/knowledge-base-data/
+      bucket_prefix: "knowledge-base-data"
+      inclusion_prefixes:
+        - "policies/"
+        - "products/"
+        - "faqs/"
+      exclusion_prefixes:
+        - "archive/"
+        - "temp/"
+    
+  # Chunking strategy for document processing
+  chunking_configuration:
+    chunking_strategy: "FIXED_SIZE"
+    fixed_size_chunking:
+      max_tokens: 1024
+      overlap_percentage: 20
+    # Alternative strategies:
+    # chunking_strategy: "SEMANTIC"
+    # chunking_strategy: "HIERARCHICAL"
+    # chunking_strategy: "NONE"
+
+  # Vector store configuration (using Amazon S3 Vectors)
+  storage_configuration:
+    type: "S3_VECTORS"
+    s3_vectors:
+      # S3 Vectors bucket configuration
+      # Bucket will be created automatically or use existing
+      bucket_name: "customer-service-vectors"
+      # Vector index name within S3
+      vector_index_name: "bedrock-kb-index"
+      # Embedding dimensions (1024 for Titan v2)
+      embedding_dimensions: 1024
+      # Distance metric for similarity search
+      distance_metric: "COSINE"
+      # Non-filterable metadata fields
+      metadata_configuration:
+        non_filterable_fields:
+          - "AMAZON_BEDROCK_TEXT"
+          - "AMAZON_BEDROCK_METADATA"
+
+# Retrieval configuration
+retrieval:
+  # Number of results to retrieve
+  number_of_results: 5
+  
+  # Search type
+  search_type: "HYBRID"  # SEMANTIC or HYBRID
+  
+  # Filtering (optional)
+  filter:
+    # Example: only retrieve from specific document types
+    # document_type: ["policy", "faq"]
+
+# Sync configuration
+sync:
+  # How often to sync the knowledge base with S3
+  schedule: "rate(1 day)"
+  
+  # Whether to sync on creation
+  sync_on_create: true
+
+# Tags for the knowledge base
+tags:
+  Environment: "development"
+  Project: "customer-service-agent"
+  ManagedBy: "sagemaker-pipeline"

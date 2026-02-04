@@ -1,0 +1,46 @@
+{
+  "request_id": "example-request-2026-01-28",
+  "timestamp": "2026-01-28T21:50:00Z",
+  "endpoint_name": "aiops-3hp6gkle2qwdgn-models-3hp6gkle2qwdgn-c80k0kzo5vb44n",
+  "endpoint_status": "InService",
+  "invoked_production_variant": "AllTraffic",
+  "input_data": {
+    "length": 0.508,
+    "diameter": 0.42,
+    "height": 0.14,
+    "whole_weight": 0.471,
+    "shucked_weight": 0.214,
+    "viscera_weight": 0.0935,
+    "shell_weight": 0.135,
+    "sex": "M"
+  },
+  "prediction": {
+    "rings": 10.558652877807617,
+    "estimated_age_years": 12.558652877807617,
+    "confidence": "high"
+  },
+  "metadata": {
+    "model_name": "AbalonePackageGroup",
+    "model_version": "1",
+    "model_approval_status": "Approved",
+    "content_type": "text/csv; charset=utf-8",
+    "processing_time_ms": 45
+  },
+  "interpretation": {
+    "description": "El modelo predice que este abulón tiene aproximadamente 10.56 anillos",
+    "age_calculation": "Edad = rings + 1.5 años (aproximadamente 12.56 años)",
+    "classification": "Adulto maduro"
+  },
+  "additional_examples": [
+    {
+      "sex": "F",
+      "input_csv": "0.455,0.365,0.095,0.514,0.2245,0.101,0.15,0,1,0",
+      "predicted_rings": 11.05233097076416
+    },
+    {
+      "sex": "I",
+      "input_csv": "0.350,0.265,0.090,0.226,0.0995,0.0485,0.07,0,0,1",
+      "predicted_rings": 7.5
+    }
+  ]
+}

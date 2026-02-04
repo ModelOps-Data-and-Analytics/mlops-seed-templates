@@ -1,0 +1,24 @@
+{
+  "endpoint_name": "aiops-3hp6gkle2qwdgn-models-3hp6gkle2qwdgn-c80k0kzo5vb44n",
+  "content_type": "text/csv",
+  "description": "Predicción de edad de abulón basada en medidas físicas",
+  "input_features": {
+    "length": 0.508,
+    "diameter": 0.42,
+    "height": 0.14,
+    "whole_weight": 0.471,
+    "shucked_weight": 0.214,
+    "viscera_weight": 0.0935,
+    "shell_weight": 0.135,
+    "sex": "M"
+  },
+  "input_format": "csv",
+  "csv_data": "0.508,0.42,0.14,0.471,0.214,0.0935,0.135,1,0,0",
+  "notes": [
+    "El sexo se codifica como one-hot: M=[1,0,0], F=[0,1,0], I=[0,0,1]",
+    "El orden de features es: length, diameter, height, whole_weight, shucked_weight, viscera_weight, shell_weight, sex_M, sex_F, sex_I",
+    "Los datos deben estar separados por comas sin espacios",
+    "El modelo predice el número de anillos (rings) que indica la edad del abulón"
+  ],
+  "example_curl": "aws sagemaker-runtime invoke-endpoint --endpoint-name aiops-3hp6gkle2qwdgn-models-3hp6gkle2qwdgn-c80k0kzo5vb44n --content-type text/csv --body fileb://data.csv --region us-east-1 output.txt"
+}

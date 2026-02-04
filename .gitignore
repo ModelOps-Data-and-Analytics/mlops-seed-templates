@@ -1,0 +1,310 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+pytest_cache/
+
+# ==========================================
+# Virtual Environments & Package Managers
+# ==========================================
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+.env/
+env.bak/
+venv.bak/
+pythonenv*/
+.virtualenv/
+virtualenv/
+
+# Conda environments
+conda-env/
+.conda/
+*.conda
+conda-meta/
+envs/
+miniconda/
+anaconda/
+.condarc
+
+# Pyenv
+.python-version
+.pyenv/
+
+# Pipenv
+Pipfile.lock
+
+# Poetry
+.poetry/
+poetry.lock
+
+# PDM
+.pdm.toml
+__pypackages__/
+
+# UV (new Python package manager)
+.uv/
+uv.lock
+
+# Hatch
+.hatch/
+
+# Rye
+.rye/
+
+# ==========================================
+# Cache Directories
+# ==========================================
+
+# Pip cache
+.pip/
+pip-cache/
+.cache/pip/
+~/.cache/pip/
+
+# General cache
+.cache/
+cache/
+*.cache
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+.pylint.d/
+.pytype/
+
+# Pre-commit cache
+.pre-commit-cache/
+
+# Jupyter cache
+.ipynb_checkpoints/
+*.ipynb_checkpoints/
+
+# Pytest cache
+.pytest_cache/
+pytestdebug.log
+
+# Coverage cache
+.coverage_cache/
+
+# Sphinx documentation cache
+docs/_build/
+doc/_build/
+
+# ==========================================
+# AWS CDK
+# ==========================================
+cdk.out/
+cdk.context.json
+.cdk.staging/
+cdktf.out/
+
+# ==========================================
+# Node.js (for CDK)
+# ==========================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm/
+.yarn/
+.pnpm-store/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# ==========================================
+# IDE / Editor
+# ==========================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+*.sublime-workspace
+*.sublime-project
+.spyderproject
+.spyproject
+*.code-workspace
+
+# ==========================================
+# Operating Systems
+# ==========================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+*~
+.directory
+
+# ==========================================
+# AWS & Secrets (NEVER commit these)
+# ==========================================
+.aws/
+credentials
+*.pem
+*.key
+*.crt
+*.pfx
+
+# Secrets and sensitive files
+*.secret
+*.secrets
+.env.local
+.env.*.local
+.env.development
+.env.production
+secrets.json
+config.local.py
+.secrets/
+secrets/
+
+# ==========================================
+# SageMaker & ML
+# ==========================================
+.sagemaker/
+*.tar.gz
+model.tar.gz
+
+# Lambda layers build artifacts
+layers/git-layer/*.zip
+layers/python-layer/*.zip
+layers/**/*.zip
+
+# ML artifacts
+mlruns/
+mlflow/
+experiments/
+checkpoints/
+models/
+*.model
+*.onnx
+*.pb
+*.pt
+*.pth
+*.safetensors
+wandb/
+.wandb/
+
+# ==========================================
+# Docker
+# ==========================================
+*.log
+docker-compose.override.yml
+.docker/
+
+# ==========================================
+# Terraform (if used)
+# ==========================================
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+.terraformrc
+terraform.rc
+
+# ==========================================
+# Logs & Temporary Files
+# ==========================================
+logs/
+*.log
+log/
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+
+# ==========================================
+# Data Files
+# ==========================================
+# Large datasets should not be in git
+*.csv
+*.parquet
+*.json
+!prediction_request.json
+!prediction_response.json
+!cdk.json
+!package.json
+!tsconfig.json
+*.pkl
+*.pickle
+*.h5
+*.hdf5
+*.feather
+*.arrow
+
+# ==========================================
+# Output Directories
+# ==========================================
+output/
+outputs/
+results/
+artifacts/
+reports/

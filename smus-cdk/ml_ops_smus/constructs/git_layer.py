@@ -27,15 +27,18 @@ class GitLayerConstruct(Construct):
         os.makedirs(dist_path, exist_ok=True)
 
         try:
-            # Build Docker image
+            # Use podman instead of docker
+            container_cmd = "podman" if subprocess.run(["which", "podman"], capture_output=True).returncode == 0 else "docker"
+            
+            # Build container image
             subprocess.run(
-                ["docker", "build", "-t", "git-layer-builder", docker_context],
+                [container_cmd, "build", "-t", "git-layer-builder", docker_context],
                 check=True
             )
 
             # Run container to get tar file
             subprocess.run(
-                ["docker", "run", "--rm", "-v", f"{dist_path}:/output", "git-layer-builder"],
+                [container_cmd, "run", "--rm", "-v", f"{dist_path}:/output", "git-layer-builder"],
                 check=True
             )
 

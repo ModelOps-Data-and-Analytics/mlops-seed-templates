@@ -1,0 +1,32 @@
+# Agent Deployment Configuration - Development Environment
+
+agent:
+  name: customer-service-agent-dev
+  idle_session_ttl: 1800
+  
+  guardrails:
+    enabled: false  # Disabled for dev
+    
+  alias:
+    staging:
+      description: "Staging alias for testing"
+      routing_config:
+        version: DRAFT
+    
+    prod:
+      description: "Production alias"
+      routing_config:
+        version: LATEST
+
+monitoring:
+  cloudwatch:
+    enabled: true
+    log_retention_days: 7
+    
+  alarms:
+    enabled: false  # Disabled for dev
+    
+testing:
+  integration_tests:
+    timeout_seconds: 30
+    retry_count: 3

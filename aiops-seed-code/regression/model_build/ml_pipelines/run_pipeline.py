@@ -7,7 +7,6 @@ import sys
 
 import boto3
 import sagemaker
-import sagemaker.session
 
 from sagemaker.workflow.pipeline import Pipeline
 from sagemaker.workflow.parameters import ParameterString

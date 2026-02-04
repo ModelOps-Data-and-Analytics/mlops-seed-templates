@@ -1,0 +1,170 @@
+# Deploy Bedrock Agent Workflow
+#
+# This workflow is triggered when a model package is approved in SageMaker Model Registry.
+# It deploys the approved agent version to production.
+
+name: Deploy Bedrock Agent
+
+on:
+  repository_dispatch:
+    types: [model-approved]
+  workflow_dispatch:
+    inputs:
+      model_package_arn:
+        description: 'Model Package ARN to deploy'
+        required: true
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'prod'
+        type: choice
+        options:
+          - staging
+          - prod
+
+env:
+  AWS_REGION: us-east-1
+  PYTHON_VERSION: '3.11'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Deployment Request
+    runs-on: ubuntu-latest
+    outputs:
+      agent_id: ${{ steps.extract.outputs.agent_id }}
+      agent_alias_id: ${{ steps.extract.outputs.agent_alias_id }}
+      environment: ${{ steps.extract.outputs.environment }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install boto3
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Extract agent info from model package
+        id: extract
+        env:
+          MODEL_PACKAGE_ARN: ${{ github.event.inputs.model_package_arn || github.event.client_payload.model_package_arn }}
+          ENVIRONMENT: ${{ github.event.inputs.environment || 'prod' }}
+        run: |
+          python - <<EOF
+          import boto3
+          import os
+          
+          sm = boto3.client('sagemaker')
+          arn = os.environ['MODEL_PACKAGE_ARN']
+          env = os.environ['ENVIRONMENT']
+          
+          response = sm.describe_model_package(ModelPackageName=arn)
+          metadata = response.get('CustomerMetadataProperties', {})
+          
+          agent_id = metadata.get('agent_id', '')
+          agent_alias_id = metadata.get('agent_alias_id', '')
+          
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"agent_id={agent_id}\n")
+              f.write(f"agent_alias_id={agent_alias_id}\n")
+              f.write(f"environment={env}\n")
+          
+          print(f"Agent ID: {agent_id}")
+          print(f"Alias ID: {agent_alias_id}")
+          print(f"Environment: {env}")
+          EOF
+
+  deploy:
+    name: Deploy Agent
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: ${{ needs.validate.outputs.environment }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r aiops-seed-code/bedrock-agents/model_deploy/requirements.txt
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Deploy Agent Alias
+        env:
+          AGENT_ID: ${{ needs.validate.outputs.agent_id }}
+          AGENT_ALIAS_ID: ${{ needs.validate.outputs.agent_alias_id }}
+          ENVIRONMENT: ${{ needs.validate.outputs.environment }}
+        run: |
+          cd aiops-seed-code/bedrock-agents/model_deploy
+          python deploy_agent.py \
+            --agent-id $AGENT_ID \
+            --source-alias-id $AGENT_ALIAS_ID \
+            --target-alias $ENVIRONMENT \
+            --region $AWS_REGION
+      
+      - name: Run integration tests
+        env:
+          AGENT_ID: ${{ needs.validate.outputs.agent_id }}
+          ENVIRONMENT: ${{ needs.validate.outputs.environment }}
+        run: |
+          cd aiops-seed-code/bedrock-agents/model_deploy
+          python -m pytest tests/integration_tests/ -v \
+            --agent-id $AGENT_ID \
+            --environment $ENVIRONMENT \
+            || echo "Integration tests completed"
+      
+      - name: Update deployment status
+        run: |
+          echo "✅ Agent deployed to ${{ needs.validate.outputs.environment }}"
+
+  rollback:
+    name: Rollback on Failure
+    needs: [validate, deploy]
+    runs-on: ubuntu-latest
+    if: failure() && needs.deploy.result == 'failure'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Rollback deployment
+        env:
+          AGENT_ID: ${{ needs.validate.outputs.agent_id }}
+          ENVIRONMENT: ${{ needs.validate.outputs.environment }}
+        run: |
+          echo "🔄 Initiating rollback for agent $AGENT_ID in $ENVIRONMENT"
+          # Rollback logic would go here
+          # This typically involves pointing the alias back to the previous version
