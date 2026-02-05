@@ -5,6 +5,16 @@ import logging
 import os
 import sys
 
+import subprocess
+
+# Install required dependencies
+logger_temp = logging.getLogger(__name__)
+try:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "pyyaml"])
+    logger_temp.info("Successfully installed pyyaml")
+except subprocess.CalledProcessError as e:
+    logger_temp.error(f"Error installing pyyaml: {e}")
+
 import boto3
 
 logging.basicConfig(level=logging.INFO)
