@@ -128,14 +128,15 @@ def get_pipeline(
     )
 
     # ==========================================================================
-    # Processing Image
+    # Processing Image (PyTorch for Python 3.10 support)
     # ==========================================================================
     processing_image_uri = sagemaker.image_uris.retrieve(
-        framework="sklearn",
+        framework="pytorch",
         region=region,
-        version="1.2-1",
+        version="2.0.0",
         py_version="py310",
         instance_type="ml.m5.xlarge",
+        image_scope="training",
     )
 
     # ==========================================================================
