@@ -319,14 +319,20 @@ El rol de ejecución de SageMaker Pipeline necesita la siguiente política:
             "Resource": "*"
         },
         {
-            "Sid": "S3AccessForKnowledgeBase",
+            "Sid": "S3FullAccessForKnowledgeBase",
             "Effect": "Allow",
             "Action": [
+                "s3:CreateBucket",
+                "s3:DeleteBucket",
                 "s3:GetObject",
                 "s3:PutObject",
                 "s3:DeleteObject",
                 "s3:ListBucket",
-                "s3:GetBucketLocation"
+                "s3:GetBucketLocation",
+                "s3:PutBucketPolicy",
+                "s3:GetBucketPolicy",
+                "s3:PutBucketVersioning",
+                "s3:GetBucketVersioning"
             ],
             "Resource": "*"
         },
