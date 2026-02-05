@@ -134,7 +134,7 @@ def get_pipeline(
         framework="sklearn",
         region=region,
         version="1.2-1",
-        py_version="py3",
+        py_version="py310",
         instance_type="ml.m5.xlarge",
     )
 
