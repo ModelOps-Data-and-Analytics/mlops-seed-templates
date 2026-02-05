@@ -3,6 +3,7 @@ boto3>=1.34.0
 # Note: sagemaker 2.200+ has modular structure, using 2.199.x for sagemaker.workflow support
 sagemaker>=2.100.0,<2.200.0
 pyyaml>=6.0
+pytz>=2024.1
 
 # AWS SDK for Bedrock
 # Note: boto3 includes bedrock and bedrock-agent services
