@@ -40,7 +40,7 @@ def get_role_arn(region: str) -> str:
     try:
         account_id = boto3.client('sts', region_name=region).get_caller_identity()['Account']
         # Use standard SageMaker Domain Execution role
-        return f"arn:aws:iam::{account_id}:role/service-role/AmazonSageMakerDomainExecution"
+        return f"arn:aws:iam::{account_id}:role/service-role/AmazonSageMakerAdminIAMExecutionRole"
     except Exception as e:
         raise RuntimeError(f"Could not determine SageMaker execution role: {e}")
 
