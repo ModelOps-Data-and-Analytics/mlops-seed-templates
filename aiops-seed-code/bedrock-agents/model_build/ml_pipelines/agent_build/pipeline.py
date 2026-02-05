@@ -100,6 +100,11 @@ def get_pipeline(
         name="EvaluationThreshold",
         default_value=0.8
     )
+    # String version for job_arguments (ProcessingStep requires strings)
+    param_evaluation_threshold_str = ParameterString(
+        name="EvaluationThresholdStr",
+        default_value="0.8"
+    )
     param_knowledge_base_s3_uri = ParameterString(
         name="KnowledgeBaseS3Uri",
         default_value=f"s3://{default_bucket}/{base_job_prefix}/knowledge-base-data/"
@@ -404,7 +409,7 @@ def get_pipeline(
         job_arguments=[
             "--agent-name", param_agent_name,
             "--region", region,
-            "--threshold", param_evaluation_threshold,
+            "--threshold", param_evaluation_threshold_str,
         ],
         property_files=[evaluation_report],
     )
@@ -494,6 +499,7 @@ def get_pipeline(
             param_kb_overlap_percentage,
             param_kb_ingestion_timeout,
             param_skip_kb_ingestion,
+            param_evaluation_threshold_str,
         ],
         steps=[
             step_setup,
