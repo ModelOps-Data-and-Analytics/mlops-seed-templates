@@ -1,23 +1,12 @@
 # Build Agent Pipeline Workflow
 #
 # This workflow runs the SageMaker Pipeline for building/updating Bedrock Agents.
-# Triggered on push to main branch or manually via workflow_dispatch.
+# Pattern aligned with regression workflow for consistency.
 
 name: Build Bedrock Agent Pipeline
+run-name: ${{ github.actor }} is building Bedrock Agent in SMUS
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'ml_pipelines/**'
-      - 'source_scripts/**'
-  pull_request:
-    branches:
-      - main
-    paths:
-      - 'ml_pipelines/**'
-      - 'source_scripts/**'
   workflow_dispatch:
     inputs:
       agent_name:
@@ -37,136 +26,223 @@ on:
         description: 'Foundation model ID'
         required: true
         default: 'anthropic.claude-3-7-sonnet-20250219-v1:0'
-
-env:
-  AWS_REGION: us-east-1
-  PYTHON_VERSION: '3.11'
+  push:
+    branches: [ main ]
+    paths:
+      - 'ml_pipelines/**'
+      - 'source_scripts/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'ml_pipelines/**'
+      - 'source_scripts/**'
 
 permissions:
   id-token: write
   contents: read
 
 jobs:
-  lint-and-test:
-    name: Lint and Test
+  check-trigger:
     runs-on: ubuntu-latest
-    
+    outputs:
+      pipeline_enabled: ${{ steps.check.outputs.pipeline_enabled }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
-      
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install flake8 pytest black isort
-          pip install -r ./ml_pipelines/requirements.txt
-      
-      - name: Lint with flake8
-        run: |
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-      
-      - name: Check formatting with black
-        run: |
-          black --check . || true
-      
-      - name: Run unit tests
-        run: |
-          cd .
-          pytest tests/ -v --tb=short || echo "No tests found or tests failed"
+    - name: Check Pipeline Execution Trigger
+      id: check
+      run: |
+        TRIGGER_EXECUTION="${{ vars.TRIGGER_PIPELINE_EXECUTION }}"
+        echo "Pipeline execution trigger status: ${TRIGGER_EXECUTION}"
+        
+        if [ "$TRIGGER_EXECUTION" != "true" ]; then
+          echo "Pipeline execution is disabled."
+          echo "To enable pipeline execution:"
+          echo "   1. Go to Settings → Secrets and variables → Actions → Variables tab"
+          echo "   2. Set TRIGGER_PIPELINE_EXECUTION variable to 'true'"
+          echo "   3. Re-run this workflow or push new changes"
+          echo "pipeline_enabled=false" >> $GITHUB_OUTPUT
+        else
+          echo "Pipeline execution is enabled. Proceeding with build..."
+          echo "pipeline_enabled=true" >> $GITHUB_OUTPUT
+        fi
 
-  run-pipeline:
-    name: Run SageMaker Pipeline
-    needs: lint-and-test
+  build-agent-pipeline:
+    needs: check-trigger
+    if: needs.check-trigger.outputs.pipeline_enabled == 'true'
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
-      
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r ./ml_pipelines/requirements.txt
-      
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.OIDC_ROLE_GITHUB_WORKFLOW }}
-          aws-region: ${{ env.AWS_REGION }}
-          role-session-name: GitHubActionsSession
-      
-      - name: Set pipeline parameters
-        id: params
-        run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            echo "agent_name=${{ github.event.inputs.agent_name }}" >> $GITHUB_OUTPUT
-            echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
-            echo "foundation_model=${{ github.event.inputs.foundation_model }}" >> $GITHUB_OUTPUT
-          else
-            echo "agent_name=customer-service-agent" >> $GITHUB_OUTPUT
-            echo "environment=dev" >> $GITHUB_OUTPUT
-            echo "foundation_model=anthropic.claude-3-7-sonnet-20250219-v1:0" >> $GITHUB_OUTPUT
-          fi
-      
-      - name: Run SageMaker Pipeline
-        env:
-          AGENT_NAME: ${{ steps.params.outputs.agent_name }}
-          ENVIRONMENT: ${{ steps.params.outputs.environment }}
-          FOUNDATION_MODEL: ${{ steps.params.outputs.foundation_model }}
-          SAGEMAKER_PIPELINE_ROLE_ARN: ${{ secrets.SAGEMAKER_PIPELINE_ROLE_ARN }}
-        run: |
-          cd .
-          python -m ml_pipelines.run_pipeline \
-            --agent-name $AGENT_NAME \
-            --environment $ENVIRONMENT \
-            --foundation-model "$FOUNDATION_MODEL" \
-            --region $AWS_REGION \
-            --role-arn "$SAGEMAKER_PIPELINE_ROLE_ARN"
-      
-      - name: Wait for Pipeline Completion
-        env:
-          AGENT_NAME: ${{ steps.params.outputs.agent_name }}
-        run: |
-          echo "Waiting for pipeline execution to complete..."
-          # The run_pipeline.py should wait for completion
-          # Additional monitoring can be added here
-      
-      - name: Upload pipeline logs
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: pipeline-logs
-          path: |
-            ./logs/
-          retention-days: 7
 
-  notify:
-    name: Notify on Completion
-    needs: run-pipeline
-    runs-on: ubuntu-latest
-    if: always()
-    
     steps:
-      - name: Send notification
-        run: |
-          if [ "${{ needs.run-pipeline.result }}" == "success" ]; then
-            echo "✅ Pipeline completed successfully"
-            # Add Slack/Teams notification here if needed
-          else
-            echo "❌ Pipeline failed"
-            # Add Slack/Teams notification here if needed
-          fi
+    - run: echo "The job was automatically triggered by a ${{ github.event_name }} event."
+    - run: echo "This job is now running on a ${{ runner.os }} server hosted by GitHub!"
+    - run: echo "The name of your branch is ${{ github.ref }} and your repository is ${{ github.repository }}."
+    
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+    
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.OIDC_ROLE_GITHUB_WORKFLOW }}
+        aws-region: ${{ secrets.REGION }}
+    
+    - name: Install pip dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r ./ml_pipelines/requirements.txt
+    
+    - name: Set pipeline parameters
+      id: params
+      run: |
+        if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          echo "agent_name=${{ github.event.inputs.agent_name }}" >> $GITHUB_OUTPUT
+          echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+          echo "foundation_model=${{ github.event.inputs.foundation_model }}" >> $GITHUB_OUTPUT
+        else
+          echo "agent_name=customer-service-agent" >> $GITHUB_OUTPUT
+          echo "environment=dev" >> $GITHUB_OUTPUT
+          echo "foundation_model=anthropic.claude-3-7-sonnet-20250219-v1:0" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Upload source scripts to S3
+      env:
+        ARTIFACT_BUCKET: ${{ secrets.ARTIFACT_BUCKET }}
+      run: |
+        echo "Uploading source scripts to S3..."
+        aws s3 cp --recursive source_scripts/ s3://${ARTIFACT_BUCKET}/bedrock-agents/source_scripts/
+    
+    - name: Run SageMaker Pipeline
+      env:
+        REGION: ${{ secrets.REGION }}
+        SAGEMAKER_PROJECT_NAME: ${{ secrets.SAGEMAKER_PROJECT_NAME }}
+        SAGEMAKER_PROJECT_ID: ${{ secrets.SAGEMAKER_PROJECT_ID }}
+        AMAZON_DATAZONE_DOMAIN: ${{ secrets.AMAZON_DATAZONE_DOMAIN }}
+        AMAZON_DATAZONE_SCOPENAME: ${{ secrets.AMAZON_DATAZONE_SCOPENAME }}
+        SAGEMAKER_DOMAIN_ARN: ${{ secrets.SAGEMAKER_DOMAIN_ARN }}
+        SAGEMAKER_SPACE_ARN: ${{ secrets.SAGEMAKER_SPACE_ARN }}
+        AMAZON_DATAZONE_PROJECT: ${{ secrets.AMAZON_DATAZONE_PROJECT }}
+        ARTIFACT_BUCKET: ${{ secrets.ARTIFACT_BUCKET }}
+        SAGEMAKER_PIPELINE_ROLE_ARN: ${{ secrets.SAGEMAKER_PIPELINE_ROLE_ARN }}
+        AGENT_NAME: ${{ steps.params.outputs.agent_name }}
+        ENVIRONMENT: ${{ steps.params.outputs.environment }}
+        FOUNDATION_MODEL: ${{ steps.params.outputs.foundation_model }}
+      run: |
+        export PYTHONUNBUFFERED=TRUE
+        export SAGEMAKER_PROJECT_NAME_ID="${SAGEMAKER_PROJECT_NAME}-${SAGEMAKER_PROJECT_ID}"
+        export PIPELINE_NAME="bedrock-agent-${AGENT_NAME}-${ENVIRONMENT}"
+        
+        echo "=== Starting Bedrock Agent Pipeline ==="
+        echo "Agent Name: ${AGENT_NAME}"
+        echo "Environment: ${ENVIRONMENT}"
+        echo "Foundation Model: ${FOUNDATION_MODEL}"
+        
+        python ./ml_pipelines/run_pipeline.py \
+          --module-name ml_pipelines.agent_build.pipeline \
+          --role-arn "${SAGEMAKER_PIPELINE_ROLE_ARN}" \
+          --tags '[{"Key":"sagemaker:project-name", "Value":"'"${SAGEMAKER_PROJECT_NAME}"'"}, {"Key":"sagemaker:project-id", "Value":"'"${SAGEMAKER_PROJECT_ID}"'"}, {"Key":"AmazonDataZoneDomain", "Value":"'"${AMAZON_DATAZONE_DOMAIN}"'"}, {"Key":"AmazonDataZoneScopeName", "Value":"'"${AMAZON_DATAZONE_SCOPENAME}"'"}, {"Key":"sagemaker:domain-arn", "Value":"'"${SAGEMAKER_DOMAIN_ARN}"'"}, {"Key":"sagemaker:space-arn", "Value":"'"${SAGEMAKER_SPACE_ARN}"'"}, {"Key":"AmazonDataZoneProject", "Value":"'"${AMAZON_DATAZONE_PROJECT}"'"}, {"Key":"AgentName", "Value":"'"${AGENT_NAME}"'"}, {"Key":"Environment", "Value":"'"${ENVIRONMENT}"'"}]' \
+          --kwargs '{"region":"'"${REGION}"'","role":"'"${SAGEMAKER_PIPELINE_ROLE_ARN}"'","default_bucket":"'"${ARTIFACT_BUCKET}"'","pipeline_name":"'"${PIPELINE_NAME}"'","agent_name":"'"${AGENT_NAME}"'","project_id":"'"${SAGEMAKER_PROJECT_ID}"'","foundation_model":"'"${FOUNDATION_MODEL}"'"}'
+        
+        echo "Pipeline started successfully. Pipeline name: ${PIPELINE_NAME}"
+    
+    - name: Monitor Pipeline Execution
+      env:
+        REGION: ${{ secrets.REGION }}
+        AGENT_NAME: ${{ steps.params.outputs.agent_name }}
+        ENVIRONMENT: ${{ steps.params.outputs.environment }}
+      run: |
+        export PIPELINE_NAME="bedrock-agent-${AGENT_NAME}-${ENVIRONMENT}"
+        
+        echo "=== Monitoring Pipeline Execution ==="
+        echo "Pipeline Name: ${PIPELINE_NAME}"
+        
+        # Get the latest execution ARN
+        EXECUTION_ARN=$(aws sagemaker list-pipeline-executions \
+          --pipeline-name "${PIPELINE_NAME}" \
+          --region "${REGION}" \
+          --max-items 1 \
+          --query 'PipelineExecutionSummaries[0].PipelineExecutionArn' \
+          --output text)
+        
+        if [ "$EXECUTION_ARN" = "None" ] || [ -z "$EXECUTION_ARN" ]; then
+          echo "Error: Could not find pipeline execution"
+          exit 1
+        fi
+        
+        EXECUTION_ARN=$(echo "$EXECUTION_ARN" | tr -d '\n' | sed 's/None$//')
+        
+        echo "Monitoring execution: ${EXECUTION_ARN}"
+        
+        # Validate ARN format
+        if [[ ! "$EXECUTION_ARN" =~ ^arn:aws[a-z\-]*:sagemaker:[a-z0-9\-]*:[0-9]{12}:pipeline/.*/execution/.* ]]; then
+          echo "Error: Invalid execution ARN format: ${EXECUTION_ARN}"
+          exit 1
+        fi
+        
+        # Monitor pipeline execution status
+        MAX_WAIT_TIME=3600  # 1 hour timeout
+        WAIT_INTERVAL=30    # Check every 30 seconds
+        ELAPSED_TIME=0
+        
+        while [ $ELAPSED_TIME -lt $MAX_WAIT_TIME ]; do
+          STATUS=$(aws sagemaker describe-pipeline-execution \
+            --pipeline-execution-arn "${EXECUTION_ARN}" \
+            --region "${REGION}" \
+            --query 'PipelineExecutionStatus' \
+            --output text)
+          
+          echo "Pipeline Status: ${STATUS} (Elapsed: ${ELAPSED_TIME}s)"
+          
+          case $STATUS in
+            "Succeeded")
+              echo "Pipeline execution completed successfully!"
+              
+              aws sagemaker describe-pipeline-execution \
+                --pipeline-execution-arn "${EXECUTION_ARN}" \
+                --region "${REGION}" \
+                --query '{Status: PipelineExecutionStatus, StartTime: CreationTime, EndTime: LastModifiedTime}' \
+                --output table
+              
+              echo "Success: Bedrock Agent Pipeline execution completed successfully."
+              exit 0
+              ;;
+            "Failed"|"Stopped")
+              echo "Pipeline execution failed with status: ${STATUS}"
+              
+              FAILURE_REASON=$(aws sagemaker describe-pipeline-execution \
+                --pipeline-execution-arn "${EXECUTION_ARN}" \
+                --region "${REGION}" \
+                --query 'FailureReason' \
+                --output text)
+              
+              if [ "$FAILURE_REASON" != "None" ] && [ -n "$FAILURE_REASON" ]; then
+                echo "Failure Reason: ${FAILURE_REASON}"
+              fi
+              
+              echo "=== Failed Pipeline Steps ==="
+              aws sagemaker list-pipeline-execution-steps \
+                --pipeline-execution-arn "${EXECUTION_ARN}" \
+                --region "${REGION}" \
+                --query 'PipelineExecutionSteps[?StepStatus==`Failed`].{StepName: StepName, Status: StepStatus, FailureReason: FailureReason}' \
+                --output table
+              
+              exit 1
+              ;;
+            "Executing"|"Stopping")
+              sleep $WAIT_INTERVAL
+              ELAPSED_TIME=$((ELAPSED_TIME + WAIT_INTERVAL))
+              ;;
+            *)
+              echo "Unknown pipeline status: ${STATUS}"
+              sleep $WAIT_INTERVAL
+              ELAPSED_TIME=$((ELAPSED_TIME + WAIT_INTERVAL))
+              ;;
+          esac
+        done
+        
+        echo "Timeout: Pipeline execution exceeded maximum wait time of ${MAX_WAIT_TIME} seconds"
+        echo "Current status: ${STATUS}"
+        exit 1
+        
+    - run: echo "This github action job's status is ${{ job.status }}."
