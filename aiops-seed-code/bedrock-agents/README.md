@@ -213,13 +213,188 @@ Este profile utiliza **Claude 3.7 Sonnet** con soporte para **Cross-Region Infer
 
 ## 🔐 Permisos IAM Requeridos
 
-- `bedrock:*` - Operaciones de Bedrock Agents
-- `bedrock:InvokeModel` - Invocación cross-region del modelo
-- `bedrock:GetInferenceProfile` - Perfiles de inferencia cross-region
-- `sagemaker:*` - Pipelines y Model Registry
-- `lambda:*` - Action Groups
-- `s3:*` - Almacenamiento de artefactos y S3 Vectors
-- `logs:*` - CloudWatch Logs
+El rol de ejecución de SageMaker Pipeline necesita la siguiente política:
+
+```json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "BedrockAgentFullAccess",
+            "Effect": "Allow",
+            "Action": [
+                "bedrock:CreateAgent",
+                "bedrock:UpdateAgent",
+                "bedrock:DeleteAgent",
+                "bedrock:GetAgent",
+                "bedrock:ListAgents",
+                "bedrock:PrepareAgent",
+                "bedrock:CreateAgentAlias",
+                "bedrock:UpdateAgentAlias",
+                "bedrock:DeleteAgentAlias",
+                "bedrock:GetAgentAlias",
+                "bedrock:ListAgentAliases",
+                "bedrock:CreateAgentActionGroup",
+                "bedrock:UpdateAgentActionGroup",
+                "bedrock:DeleteAgentActionGroup",
+                "bedrock:GetAgentActionGroup",
+                "bedrock:ListAgentActionGroups",
+                "bedrock:AssociateAgentKnowledgeBase",
+                "bedrock:DisassociateAgentKnowledgeBase",
+                "bedrock:ListAgentKnowledgeBases",
+                "bedrock:GetAgentVersion",
+                "bedrock:ListAgentVersions",
+                "bedrock:TagResource",
+                "bedrock:UntagResource",
+                "bedrock:ListTagsForResource"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "BedrockKnowledgeBaseAccess",
+            "Effect": "Allow",
+            "Action": [
+                "bedrock:CreateKnowledgeBase",
+                "bedrock:UpdateKnowledgeBase",
+                "bedrock:DeleteKnowledgeBase",
+                "bedrock:GetKnowledgeBase",
+                "bedrock:ListKnowledgeBases",
+                "bedrock:CreateDataSource",
+                "bedrock:UpdateDataSource",
+                "bedrock:DeleteDataSource",
+                "bedrock:GetDataSource",
+                "bedrock:ListDataSources",
+                "bedrock:StartIngestionJob",
+                "bedrock:GetIngestionJob",
+                "bedrock:ListIngestionJobs",
+                "bedrock:Retrieve",
+                "bedrock:RetrieveAndGenerate"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "BedrockModelAccess",
+            "Effect": "Allow",
+            "Action": [
+                "bedrock:InvokeModel",
+                "bedrock:InvokeModelWithResponseStream",
+                "bedrock:InvokeAgent",
+                "bedrock:ListFoundationModels",
+                "bedrock:GetFoundationModel",
+                "bedrock:GetInferenceProfile",
+                "bedrock:ListInferenceProfiles"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "LambdaForActionGroups",
+            "Effect": "Allow",
+            "Action": [
+                "lambda:CreateFunction",
+                "lambda:UpdateFunctionCode",
+                "lambda:UpdateFunctionConfiguration",
+                "lambda:DeleteFunction",
+                "lambda:GetFunction",
+                "lambda:GetFunctionConfiguration",
+                "lambda:ListFunctions",
+                "lambda:InvokeFunction",
+                "lambda:AddPermission",
+                "lambda:RemovePermission",
+                "lambda:GetPolicy",
+                "lambda:TagResource",
+                "lambda:UntagResource"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "IAMPassRole",
+            "Effect": "Allow",
+            "Action": [
+                "iam:PassRole",
+                "iam:GetRole",
+                "iam:CreateRole",
+                "iam:AttachRolePolicy",
+                "iam:PutRolePolicy"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "S3AccessForKnowledgeBase",
+            "Effect": "Allow",
+            "Action": [
+                "s3:GetObject",
+                "s3:PutObject",
+                "s3:DeleteObject",
+                "s3:ListBucket",
+                "s3:GetBucketLocation"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "OpenSearchServerlessForVectorStore",
+            "Effect": "Allow",
+            "Action": [
+                "aoss:CreateCollection",
+                "aoss:DeleteCollection",
+                "aoss:UpdateCollection",
+                "aoss:BatchGetCollection",
+                "aoss:ListCollections",
+                "aoss:CreateAccessPolicy",
+                "aoss:DeleteAccessPolicy",
+                "aoss:UpdateAccessPolicy",
+                "aoss:GetAccessPolicy",
+                "aoss:ListAccessPolicies",
+                "aoss:CreateSecurityPolicy",
+                "aoss:DeleteSecurityPolicy",
+                "aoss:UpdateSecurityPolicy",
+                "aoss:GetSecurityPolicy",
+                "aoss:ListSecurityPolicies",
+                "aoss:APIAccessAll"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "SageMakerModelRegistry",
+            "Effect": "Allow",
+            "Action": [
+                "sagemaker:CreateModelPackage",
+                "sagemaker:CreateModelPackageGroup",
+                "sagemaker:DescribeModelPackage",
+                "sagemaker:DescribeModelPackageGroup",
+                "sagemaker:ListModelPackages",
+                "sagemaker:ListModelPackageGroups",
+                "sagemaker:UpdateModelPackage",
+                "sagemaker:AddTags"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "CloudWatchLogs",
+            "Effect": "Allow",
+            "Action": [
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents",
+                "logs:DescribeLogGroups",
+                "logs:DescribeLogStreams"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
+```
+
+### Permisos por Stage del Pipeline
+
+| Stage | Permisos Requeridos |
+|-------|---------------------|
+| SetupAndValidation | `bedrock:ListFoundationModels`, `GetFoundationModel` |
+| CreateBedrockAgent | `bedrock:CreateAgent`, `UpdateAgent`, `ListAgents`, `GetAgent` |
+| CreateKnowledgeBase | `bedrock:CreateKnowledgeBase`, `CreateDataSource`, `StartIngestionJob`, `aoss:*` |
+| DeployActionGroups | `lambda:CreateFunction`, `UpdateFunctionCode`, `AddPermission`, `iam:PassRole` |
+| PrepareAgent | `bedrock:PrepareAgent`, `CreateAgentAlias` |
+| EvaluateAgent | `bedrock:InvokeAgent`, `InvokeModel` |
+| RegisterAgentModel | `sagemaker:CreateModelPackage`, `CreateModelPackageGroup` |
 
 ## 📚 Referencias
 
