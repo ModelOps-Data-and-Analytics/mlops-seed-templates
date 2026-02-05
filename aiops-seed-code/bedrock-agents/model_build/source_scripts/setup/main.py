@@ -7,10 +7,16 @@ import sys
 
 import subprocess
 
-# Install required dependencies
+# Install required dependencies (including boto3 with Bedrock support)
 logger_temp = logging.getLogger(__name__)
 try:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "pyyaml"])
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "boto3>=1.34.0", "botocore>=1.34.0"])
+    logger_temp.info("Successfully installed/updated boto3 with Bedrock support")
+except subprocess.CalledProcessError as e:
+    logger_temp.error(f"Error installing boto3: {e}")
+
+try:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "pyyaml"])
     logger_temp.info("Successfully installed pyyaml")
 except subprocess.CalledProcessError as e:
     logger_temp.error(f"Error installing pyyaml: {e}")

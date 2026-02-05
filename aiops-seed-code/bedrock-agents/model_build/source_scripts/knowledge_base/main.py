@@ -3,8 +3,12 @@ import argparse
 import json
 import logging
 import os
+import subprocess
 import sys
 import time
+
+# Install boto3 with Bedrock support (container may have old version)
+subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "boto3>=1.34.0", "botocore>=1.34.0"])
 
 import boto3
 import yaml
