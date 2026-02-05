@@ -127,13 +127,15 @@ jobs:
           AGENT_NAME: ${{ steps.params.outputs.agent_name }}
           ENVIRONMENT: ${{ steps.params.outputs.environment }}
           FOUNDATION_MODEL: ${{ steps.params.outputs.foundation_model }}
+          SAGEMAKER_PIPELINE_ROLE_ARN: ${{ secrets.SAGEMAKER_PIPELINE_ROLE_ARN }}
         run: |
           cd .
           python -m ml_pipelines.run_pipeline \
             --agent-name $AGENT_NAME \
             --environment $ENVIRONMENT \
             --foundation-model "$FOUNDATION_MODEL" \
-            --region $AWS_REGION
+            --region $AWS_REGION \
+            --role-arn "$SAGEMAKER_PIPELINE_ROLE_ARN"
       
       - name: Wait for Pipeline Completion
         env:
