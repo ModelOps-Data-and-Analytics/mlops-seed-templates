@@ -16,20 +16,33 @@ logger = logging.getLogger(__name__)
 
 
 def get_role_arn(region: str) -> str:
-    """Get SageMaker execution role ARN from SSM or default."""
+    """Get SageMaker execution role ARN from SSM or environment."""
+    # First check environment variable
+    role_from_env = os.environ.get('SAGEMAKER_EXECUTION_ROLE')
+    if role_from_env:
+        return role_from_env
+    
+    # Try SSM parameter
     try:
         ssm = boto3.client('ssm', region_name=region)
-        # Try to get role from SSM parameter
         response = ssm.get_parameter(Name='/sagemaker/execution-role')
         return response['Parameter']['Value']
     except Exception:
-        # Fall back to SageMaker default role discovery
-        try:
-            return sagemaker.get_execution_role()
-        except Exception:
-            # If running in GitHub Actions, construct role ARN
-            account_id = boto3.client('sts', region_name=region).get_caller_identity()['Account']
-            return f"arn:aws:iam::{account_id}:role/SageMakerExecutionRole"
+        pass
+    
+    # Try SageMaker default role discovery (works in SageMaker environments)
+    try:
+        return sagemaker.get_execution_role()
+    except Exception:
+        pass
+    
+    # For GitHub Actions, use SageMaker Domain Execution role
+    try:
+        account_id = boto3.client('sts', region_name=region).get_caller_identity()['Account']
+        # Use standard SageMaker Domain Execution role
+        return f"arn:aws:iam::{account_id}:role/service-role/AmazonSageMakerDomainExecution"
+    except Exception as e:
+        raise RuntimeError(f"Could not determine SageMaker execution role: {e}")
 
 
 def main():
