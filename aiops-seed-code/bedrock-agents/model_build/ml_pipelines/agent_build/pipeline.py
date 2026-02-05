@@ -105,17 +105,17 @@ def get_pipeline(
         default_value=f"s3://{default_bucket}/{base_job_prefix}/knowledge-base-data/"
     )
     # Parámetros de ingesta de Knowledge Base
-    param_kb_max_tokens = ParameterInteger(
+    param_kb_max_tokens = ParameterString(
         name="KBChunkMaxTokens",
-        default_value=1024
+        default_value="1024"
     )
-    param_kb_overlap_percentage = ParameterInteger(
+    param_kb_overlap_percentage = ParameterString(
         name="KBChunkOverlapPercentage",
-        default_value=20
+        default_value="20"
     )
-    param_kb_ingestion_timeout = ParameterInteger(
+    param_kb_ingestion_timeout = ParameterString(
         name="KBIngestionTimeoutMinutes",
-        default_value=30
+        default_value="30"
     )
     param_skip_kb_ingestion = ParameterString(
         name="SkipKBIngestion",
