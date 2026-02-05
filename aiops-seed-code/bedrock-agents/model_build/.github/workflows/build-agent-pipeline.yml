@@ -139,7 +139,7 @@ jobs:
         echo "Foundation Model: ${FOUNDATION_MODEL}"
         
         python ./ml_pipelines/run_pipeline.py \
-          --module-name ml_pipelines.agent_build.pipeline \
+          --module-name agent_build.pipeline \
           --role-arn "${SAGEMAKER_PIPELINE_ROLE_ARN}" \
           --tags '[{"Key":"sagemaker:project-name", "Value":"'"${SAGEMAKER_PROJECT_NAME}"'"}, {"Key":"sagemaker:project-id", "Value":"'"${SAGEMAKER_PROJECT_ID}"'"}, {"Key":"AmazonDataZoneDomain", "Value":"'"${AMAZON_DATAZONE_DOMAIN}"'"}, {"Key":"AmazonDataZoneScopeName", "Value":"'"${AMAZON_DATAZONE_SCOPENAME}"'"}, {"Key":"sagemaker:domain-arn", "Value":"'"${SAGEMAKER_DOMAIN_ARN}"'"}, {"Key":"sagemaker:space-arn", "Value":"'"${SAGEMAKER_SPACE_ARN}"'"}, {"Key":"AmazonDataZoneProject", "Value":"'"${AMAZON_DATAZONE_PROJECT}"'"}, {"Key":"AgentName", "Value":"'"${AGENT_NAME}"'"}, {"Key":"Environment", "Value":"'"${ENVIRONMENT}"'"}]' \
           --kwargs '{"region":"'"${REGION}"'","role":"'"${SAGEMAKER_PIPELINE_ROLE_ARN}"'","default_bucket":"'"${ARTIFACT_BUCKET}"'","pipeline_name":"'"${PIPELINE_NAME}"'","agent_name":"'"${AGENT_NAME}"'","project_id":"'"${SAGEMAKER_PROJECT_ID}"'","foundation_model":"'"${FOUNDATION_MODEL}"'"}'
