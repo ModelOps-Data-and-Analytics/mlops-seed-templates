@@ -116,7 +116,7 @@ def create_knowledge_base(
         },
         storageConfiguration={
             'type': 'S3',
-            's3Configuration': {
+            's3VectorsConfiguration': {
                 'bucketArn': bucket_arn
             }
         }
@@ -177,7 +177,7 @@ def create_data_source(
         name=data_source_name,
         dataSourceConfiguration={
             'type': 'S3',
-            's3Configuration': {
+            's3VectorsConfiguration': {
                 'bucketArn': f"arn:aws:s3:::{bucket}",
                 'inclusionPrefixes': [prefix] if prefix else []
             }
