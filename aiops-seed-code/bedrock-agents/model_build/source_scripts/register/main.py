@@ -40,6 +40,71 @@ def get_agent_alias(bedrock_agent_client, agent_id: str, alias_name: str = "stag
     return None
 
 
+def get_agent_knowledge_bases(bedrock_agent_client, agent_id: str, agent_version: str = "DRAFT") -> list:
+    """Get knowledge bases associated with an agent.
+    
+    Args:
+        bedrock_agent_client: Bedrock Agent client
+        agent_id: Agent ID
+        agent_version: Agent version
+        
+    Returns:
+        List of knowledge base associations
+    """
+    try:
+        response = bedrock_agent_client.list_agent_knowledge_bases(
+            agentId=agent_id,
+            agentVersion=agent_version
+        )
+        return response.get('agentKnowledgeBaseSummaries', [])
+    except ClientError as e:
+        logger.error(f"Error getting agent knowledge bases: {e}")
+        return []
+
+
+def get_knowledge_base_details(bedrock_agent_client, kb_id: str) -> dict | None:
+    """Get knowledge base details including configuration.
+    
+    Args:
+        bedrock_agent_client: Bedrock Agent client
+        kb_id: Knowledge Base ID
+        
+    Returns:
+        Knowledge base details
+    """
+    try:
+        response = bedrock_agent_client.get_knowledge_base(knowledgeBaseId=kb_id)
+        kb = response.get('knowledgeBase', {})
+        
+        # Get data sources
+        data_sources = []
+        try:
+            ds_response = bedrock_agent_client.list_data_sources(knowledgeBaseId=kb_id)
+            for ds in ds_response.get('dataSourceSummaries', []):
+                ds_detail = bedrock_agent_client.get_data_source(
+                    knowledgeBaseId=kb_id,
+                    dataSourceId=ds['dataSourceId']
+                )
+                data_sources.append(ds_detail.get('dataSource', {}))
+        except ClientError as e:
+            logger.warning(f"Could not get data sources: {e}")
+        
+        return {
+            "knowledge_base_id": kb_id,
+            "knowledge_base_arn": kb.get('knowledgeBaseArn'),
+            "name": kb.get('name'),
+            "description": kb.get('description', ''),
+            "role_arn": kb.get('roleArn'),
+            "storage_configuration": kb.get('storageConfiguration', {}),
+            "knowledge_base_configuration": kb.get('knowledgeBaseConfiguration', {}),
+            "data_sources": data_sources,
+            "status": kb.get('status')
+        }
+    except ClientError as e:
+        logger.error(f"Error getting knowledge base details: {e}")
+        return None
+
+
 def ensure_model_package_group(sm_client, group_name: str) -> str:
     """Ensure model package group exists.
     
@@ -77,7 +142,8 @@ def register_agent_model(
     agent_arn: str,
     foundation_model: str,
     approval_status: str,
-    evaluation_metrics: dict = None
+    evaluation_metrics: dict = None,
+    knowledge_base_info: dict = None
 ) -> str:
     """Register agent as model in SageMaker Model Registry.
     
@@ -90,6 +156,7 @@ def register_agent_model(
         foundation_model: Foundation model ID
         approval_status: Approval status
         evaluation_metrics: Evaluation metrics
+        knowledge_base_info: Knowledge base configuration for replication
         
     Returns:
         Model package ARN
@@ -124,6 +191,36 @@ def register_agent_model(
     if evaluation_metrics:
         customer_metadata["success_rate"] = str(evaluation_metrics.get("success_rate", 0))
         customer_metadata["total_tests"] = str(evaluation_metrics.get("total_tests", 0))
+    
+    # Add Knowledge Base information for replication in other environments
+    if knowledge_base_info:
+        customer_metadata["kb_id"] = knowledge_base_info.get("knowledge_base_id", "")
+        customer_metadata["kb_arn"] = knowledge_base_info.get("knowledge_base_arn", "")
+        customer_metadata["kb_name"] = knowledge_base_info.get("name", "")
+        customer_metadata["kb_description"] = knowledge_base_info.get("description", "")[:256]  # Max 256 chars
+        customer_metadata["kb_role_arn"] = knowledge_base_info.get("role_arn", "")
+        
+        # Store data source S3 URIs for replication
+        data_sources = knowledge_base_info.get("data_sources", [])
+        if data_sources:
+            s3_uris = []
+            for ds in data_sources:
+                s3_config = ds.get("dataSourceConfiguration", {}).get("s3Configuration", {})
+                if s3_config.get("bucketArn"):
+                    bucket_name = s3_config["bucketArn"].split(":")[-1]
+                    prefix = s3_config.get("inclusionPrefixes", [""])[0] if s3_config.get("inclusionPrefixes") else ""
+                    s3_uris.append(f"s3://{bucket_name}/{prefix}")
+            customer_metadata["kb_data_source_s3_uris"] = ",".join(s3_uris)
+            customer_metadata["kb_data_source_count"] = str(len(data_sources))
+        
+        # Store storage configuration type
+        storage_config = knowledge_base_info.get("storage_configuration", {})
+        customer_metadata["kb_storage_type"] = storage_config.get("type", "S3")
+        
+        # Store embedding model from KB configuration
+        kb_config = knowledge_base_info.get("knowledge_base_configuration", {})
+        vector_config = kb_config.get("vectorKnowledgeBaseConfiguration", {})
+        customer_metadata["kb_embedding_model"] = vector_config.get("embeddingModelArn", "")
     
     response = sm_client.create_model_package(
         ModelPackageGroupName=group_name,
@@ -196,6 +293,21 @@ def main():
         agent_alias_id = alias['agentAliasId'] if alias else "TSTALIASID"
         output["agent_alias_id"] = agent_alias_id
         
+        # Get Knowledge Base information for replication
+        kb_info = None
+        kb_associations = get_agent_knowledge_bases(bedrock_agent, agent_id)
+        if kb_associations:
+            logger.info(f"Found {len(kb_associations)} knowledge base(s) associated with agent")
+            # Get details of the first KB (primary KB)
+            primary_kb_id = kb_associations[0].get('knowledgeBaseId')
+            if primary_kb_id:
+                kb_info = get_knowledge_base_details(bedrock_agent, primary_kb_id)
+                if kb_info:
+                    output["knowledge_base_id"] = kb_info.get("knowledge_base_id")
+                    output["knowledge_base_arn"] = kb_info.get("knowledge_base_arn")
+                    output["knowledge_base_name"] = kb_info.get("name")
+                    logger.info(f"Knowledge Base: {kb_info.get('name')} ({primary_kb_id})")
+        
         # Load evaluation metrics if available
         eval_metrics = None
         eval_path = "/opt/ml/processing/input/evaluation/evaluation.json"
@@ -208,7 +320,7 @@ def main():
         group_arn = ensure_model_package_group(sm_client, args.model_package_group_name)
         output["model_package_group_arn"] = group_arn
         
-        # Register agent model
+        # Register agent model with KB info
         model_package_arn = register_agent_model(
             sm_client,
             args.model_package_group_name,
@@ -217,7 +329,8 @@ def main():
             agent_arn,
             foundation_model,
             args.approval_status,
-            eval_metrics
+            eval_metrics,
+            kb_info  # Include KB info for replication
         )
         
         output["model_package_arn"] = model_package_arn

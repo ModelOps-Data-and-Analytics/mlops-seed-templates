@@ -89,6 +89,48 @@ class DeployAgentStack(Stack):
             )
         )
         
+        # Bedrock Knowledge Base permissions
+        role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "bedrock:CreateKnowledgeBase",
+                    "bedrock:GetKnowledgeBase",
+                    "bedrock:ListKnowledgeBases",
+                    "bedrock:CreateDataSource",
+                    "bedrock:StartIngestionJob"
+                ],
+                resources=["*"]
+            )
+        )
+        
+        # S3 and STS permissions for KB creation
+        role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "s3:GetObject",
+                    "s3:ListBucket",
+                    "sts:GetCallerIdentity"
+                ],
+                resources=["*"]
+            )
+        )
+        
+        # IAM PassRole for KB
+        role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=["iam:PassRole"],
+                resources=["*"],
+                conditions={
+                    "StringEquals": {
+                        "iam:PassedToService": "bedrock.amazonaws.com"
+                    }
+                }
+            )
+        )
+        
         # SageMaker Model Registry permissions
         role.add_to_policy(
             iam.PolicyStatement(
@@ -148,12 +190,136 @@ import os
 import time
 
 import boto3
+from botocore.exceptions import ClientError
 
 logger = logging.getLogger()
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 bedrock_agent = boto3.client("bedrock-agent")
 sagemaker = boto3.client("sagemaker")
+
+
+def create_knowledge_base(metadata, environment):
+    """Create Knowledge Base in target environment using metadata from pipeline.
+    
+    Args:
+        metadata: Model package metadata containing KB configuration
+        environment: Target environment name
+        
+    Returns:
+        Knowledge Base ID if created, None otherwise
+    """
+    kb_name = metadata.get("kb_name")
+    if not kb_name:
+        logger.info("No Knowledge Base to create (kb_name not in metadata)")
+        return None
+    
+    # Check if KB already exists for this environment
+    target_kb_name = f"{kb_name}-{environment}"
+    
+    try:
+        existing_kbs = bedrock_agent.list_knowledge_bases()
+        for kb in existing_kbs.get("knowledgeBaseSummaries", []):
+            if kb["name"] == target_kb_name:
+                logger.info(f"Knowledge Base already exists: {kb['knowledgeBaseId']}")
+                return kb["knowledgeBaseId"]
+    except ClientError as e:
+        logger.warning(f"Error checking existing KBs: {e}")
+    
+    # Get configuration from metadata
+    kb_role_arn = metadata.get("kb_role_arn")
+    kb_embedding_model = metadata.get("kb_embedding_model")
+    kb_description = metadata.get("kb_description", f"Knowledge Base for {environment}")
+    kb_storage_type = metadata.get("kb_storage_type", "S3")
+    
+    if not kb_role_arn or not kb_embedding_model:
+        logger.error("Missing kb_role_arn or kb_embedding_model in metadata")
+        return None
+    
+    # Target bucket for this environment
+    region = os.environ.get("AWS_REGION", "us-east-1")
+    account_id = boto3.client("sts").get_caller_identity()["Account"]
+    target_bucket = f"sagemaker-{region}-{account_id}"
+    target_prefix = f"knowledge-base-data/{environment}"
+    
+    logger.info(f"Creating Knowledge Base: {target_kb_name}")
+    logger.info(f"  - Embedding model: {kb_embedding_model}")
+    logger.info(f"  - Storage type: {kb_storage_type}")
+    logger.info(f"  - Target data location: s3://{target_bucket}/{target_prefix}")
+    
+    try:
+        # Create KB with same configuration as pipeline
+        create_response = bedrock_agent.create_knowledge_base(
+            name=target_kb_name,
+            description=kb_description,
+            roleArn=kb_role_arn,
+            knowledgeBaseConfiguration={
+                "type": "VECTOR",
+                "vectorKnowledgeBaseConfiguration": {
+                    "embeddingModelArn": kb_embedding_model
+                }
+            },
+            storageConfiguration={
+                "type": kb_storage_type,
+                "s3Configuration": {
+                    "bucketArn": f"arn:aws:s3:::{target_bucket}"
+                }
+            }
+        )
+        
+        kb_id = create_response["knowledgeBase"]["knowledgeBaseId"]
+        logger.info(f"Created Knowledge Base: {kb_id}")
+        
+        # Wait for KB to be active
+        for _ in range(30):
+            status = bedrock_agent.get_knowledge_base(knowledgeBaseId=kb_id)["knowledgeBase"]["status"]
+            if status == "ACTIVE":
+                break
+            time.sleep(10)
+        
+        # Create data source pointing to environment-specific bucket location
+        create_data_source(kb_id, target_bucket, target_prefix)
+        
+        return kb_id
+        
+    except ClientError as e:
+        logger.error(f"Error creating Knowledge Base: {e}")
+        return None
+
+
+def create_data_source(kb_id, bucket, prefix):
+    """Create data source and start ingestion.
+    
+    Args:
+        kb_id: Knowledge Base ID
+        bucket: S3 bucket name for this environment
+        prefix: S3 prefix for KB data
+    
+    Note: The data must be uploaded to s3://{bucket}/{prefix}/ before ingestion.
+          This is typically done by a separate data pipeline or CI/CD process.
+    """
+    try:
+        response = bedrock_agent.create_data_source(
+            knowledgeBaseId=kb_id,
+            name=f"ds-{prefix.replace('/', '-')[:20]}",
+            dataSourceConfiguration={
+                "type": "S3",
+                "s3Configuration": {
+                    "bucketArn": f"arn:aws:s3:::{bucket}",
+                    "inclusionPrefixes": [prefix] if prefix else []
+                }
+            }
+        )
+        
+        ds_id = response["dataSource"]["dataSourceId"]
+        logger.info(f"Created data source: {ds_id} -> s3://{bucket}/{prefix}")
+        
+        # Start ingestion
+        bedrock_agent.start_ingestion_job(knowledgeBaseId=kb_id, dataSourceId=ds_id)
+        logger.info(f"Started ingestion for: {ds_id}")
+        
+    except ClientError as e:
+        logger.error(f"Error creating data source s3://{bucket}/{prefix}: {e}")
 
 
 def handler(event, context):
@@ -184,6 +350,14 @@ def handler(event, context):
         
         logger.info(f"Deploying agent: {agent_id}")
         
+        # Get environment
+        environment = os.environ.get("ENVIRONMENT", "prod")
+        
+        # Create Knowledge Base if metadata contains KB info
+        kb_id = None
+        if metadata.get("kb_name"):
+            kb_id = create_knowledge_base(metadata, environment)
+        
         # Get agent version from staging alias
         staging = bedrock_agent.get_agent_alias(
             agentId=agent_id,
@@ -194,7 +368,6 @@ def handler(event, context):
         agent_version = routing[0]["agentVersion"] if routing else "1"
         
         # Create or update production alias
-        environment = os.environ.get("ENVIRONMENT", "prod")
         alias_name = f"prod" if environment == "prod" else environment
         
         try:
@@ -232,6 +405,7 @@ def handler(event, context):
                 "agent_id": agent_id,
                 "agent_version": agent_version,
                 "alias": alias_name,
+                "knowledge_base_id": kb_id,
                 "status": "deployed"
             })
         }

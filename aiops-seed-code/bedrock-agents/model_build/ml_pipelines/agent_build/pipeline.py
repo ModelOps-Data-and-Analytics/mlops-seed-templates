@@ -104,6 +104,23 @@ def get_pipeline(
         name="KnowledgeBaseS3Uri",
         default_value=f"s3://{default_bucket}/{base_job_prefix}/knowledge-base-data/"
     )
+    # Parámetros de ingesta de Knowledge Base
+    param_kb_max_tokens = ParameterInteger(
+        name="KBChunkMaxTokens",
+        default_value=1024
+    )
+    param_kb_overlap_percentage = ParameterInteger(
+        name="KBChunkOverlapPercentage",
+        default_value=20
+    )
+    param_kb_ingestion_timeout = ParameterInteger(
+        name="KBIngestionTimeoutMinutes",
+        default_value=30
+    )
+    param_skip_kb_ingestion = ParameterString(
+        name="SkipKBIngestion",
+        default_value="false"
+    )
 
     # ==========================================================================
     # Processing Image
@@ -247,6 +264,9 @@ def get_pipeline(
             "--s3-uri", param_knowledge_base_s3_uri,
             "--region", region,
             "--enable", param_enable_knowledge_base,
+            "--max-tokens", param_kb_max_tokens,
+            "--overlap-percentage", param_kb_overlap_percentage,
+            "--ingestion-timeout", param_kb_ingestion_timeout,
         ],
         property_files=[kb_output_property_file],
     )
@@ -469,6 +489,11 @@ def get_pipeline(
             param_enable_action_groups,
             param_evaluation_threshold,
             param_knowledge_base_s3_uri,
+            # Parámetros de ingesta KB
+            param_kb_max_tokens,
+            param_kb_overlap_percentage,
+            param_kb_ingestion_timeout,
+            param_skip_kb_ingestion,
         ],
         steps=[
             step_setup,
