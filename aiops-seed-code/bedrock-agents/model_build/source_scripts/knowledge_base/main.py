@@ -132,7 +132,6 @@ def ensure_s3_vectors_storage(
             dataType="float32"
         )
         logger.info(f"Created vector index: {index_name}")
-        # Wait for index to be ready
         # Wait for index to be ready - S3 Vectors indexes need time to become available
         logger.info("Waiting for index to be ready (60 seconds)...")
         time.sleep(60)
