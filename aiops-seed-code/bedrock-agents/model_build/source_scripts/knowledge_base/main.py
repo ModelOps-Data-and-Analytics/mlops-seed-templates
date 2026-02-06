@@ -192,8 +192,8 @@ def create_knowledge_base(
             'type': 'S3_VECTORS',
             's3VectorsConfiguration': {
                 'vectorBucketArn': s3_vectors_config['vectorBucketArn'],
-                'indexArn': s3_vectors_config['indexArn'],
-                'indexName': s3_vectors_config['indexName']
+                'indexArn': s3_vectors_config['indexArn']
+                # Note: indexName should NOT be included when indexArn is provided
             }
         }
     )
