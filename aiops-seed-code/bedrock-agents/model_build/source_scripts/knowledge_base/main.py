@@ -89,51 +89,59 @@ def ensure_s3_vectors_storage(
         else:
             raise
 
-    # 2. Create or get vector index
+    # 2. Delete existing index and recreate to ensure compatibility with Bedrock
+    # InternalServerException from Bedrock can occur with incompatible index configurations
+    index_exists = False
     try:
-        index_response = s3vectors_client.get_index(
+        s3vectors_client.get_index(
             vectorBucketName=bucket_name,
             indexName=index_name
         )
-        logger.info(f"Using existing vector index: {index_name}")
+        index_exists = True
+        logger.info(f"Found existing vector index: {index_name} - will delete and recreate for Bedrock compatibility")
     except s3vectors_client.exceptions.NotFoundException:
-        logger.info(f"Vector index not found, creating: {index_name} (dimension={embedding_dimension})")
+        logger.info(f"Vector index not found: {index_name}")
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        if error_code not in ['NoSuchIndex', 'ResourceNotFoundException']:
+            raise
+        logger.info(f"Vector index not found (error: {error_code})")
+
+    # Delete existing index if found
+    if index_exists:
+        try:
+            logger.info(f"Deleting existing vector index: {index_name}")
+            s3vectors_client.delete_index(
+                vectorBucketName=bucket_name,
+                indexName=index_name
+            )
+            logger.info(f"Deleted vector index: {index_name}")
+            # Wait for deletion to complete
+            time.sleep(10)
+        except Exception as e:
+            logger.warning(f"Could not delete existing index: {e}")
+
+    # Create fresh index with minimal configuration for Bedrock compatibility
+    logger.info(f"Creating vector index: {index_name} (dimension={embedding_dimension})")
+    try:
         s3vectors_client.create_index(
             vectorBucketName=bucket_name,
             indexName=index_name,
             dimension=embedding_dimension,
             distanceMetric="cosine",
-            dataType="float32",
-            metadataConfiguration={
-                "nonFilterableMetadataKeys": [
-                    "AMAZON_BEDROCK_TEXT",
-                    "AMAZON_BEDROCK_METADATA"
-                ]
-            }
+            dataType="float32"
         )
         logger.info(f"Created vector index: {index_name}")
         # Wait for index to be ready
-        time.sleep(5)
+        # Wait for index to be ready - S3 Vectors indexes need time to become available
+        logger.info("Waiting for index to be ready (60 seconds)...")
+        time.sleep(60)
     except ClientError as e:
         error_code = e.response['Error']['Code']
-        if error_code in ['NoSuchIndex', 'ResourceNotFoundException']:
-            logger.info(f"Creating vector index: {index_name} (dimension={embedding_dimension}, error was: {error_code})")
-            s3vectors_client.create_index(
-                vectorBucketName=bucket_name,
-                indexName=index_name,
-                dimension=embedding_dimension,
-                distanceMetric="cosine",
-                dataType="float32",
-                metadataConfiguration={
-                    "nonFilterableMetadataKeys": [
-                        "AMAZON_BEDROCK_TEXT",
-                        "AMAZON_BEDROCK_METADATA"
-                    ]
-                }
-            )
-            logger.info(f"Created vector index: {index_name}")
-            # Wait for index to be ready
-            time.sleep(5)
+        if error_code == 'ConflictException':
+            # Index might still exist, wait and check
+            logger.info("Index creation conflict, waiting for existing index...")
+            time.sleep(10)
         else:
             raise
 
@@ -176,26 +184,42 @@ def create_knowledge_base(
     """
     logger.info(f"Creating knowledge base with S3 Vectors: {kb_name}")
     logger.info(f"  Vector Bucket: {s3_vectors_config['vectorBucketArn']}")
-    logger.info(f"  Index: {s3_vectors_config['indexName']}")
+    logger.info(f"  Index ARN: {s3_vectors_config['indexArn']}")
+    logger.info(f"  Role ARN: {role_arn}")
+    logger.info(f"  Embedding Model: {embedding_model_arn}")
+
+    # Build the request configuration
+    kb_config = {
+        'type': 'VECTOR',
+        'vectorKnowledgeBaseConfiguration': {
+            'embeddingModelArn': embedding_model_arn,
+            # Explicitly set embedding data type to FLOAT32 for S3 Vectors compatibility
+            'embeddingModelConfiguration': {
+                'bedrockEmbeddingModelConfiguration': {
+                    'dimensions': 1024,  # Titan v2 uses 1024 dimensions
+                    'embeddingDataType': 'FLOAT32'
+                }
+            }
+        }
+    }
+
+    storage_config = {
+        'type': 'S3_VECTORS',
+        's3VectorsConfiguration': {
+            'vectorBucketArn': s3_vectors_config['vectorBucketArn'],
+            'indexArn': s3_vectors_config['indexArn']
+        }
+    }
+
+    logger.info(f"Knowledge Base Configuration: {kb_config}")
+    logger.info(f"Storage Configuration: {storage_config}")
 
     response = bedrock_agent_client.create_knowledge_base(
         name=kb_name,
         description=description,
         roleArn=role_arn,
-        knowledgeBaseConfiguration={
-            'type': 'VECTOR',
-            'vectorKnowledgeBaseConfiguration': {
-                'embeddingModelArn': embedding_model_arn
-            }
-        },
-        storageConfiguration={
-            'type': 'S3_VECTORS',
-            's3VectorsConfiguration': {
-                'vectorBucketArn': s3_vectors_config['vectorBucketArn'],
-                'indexArn': s3_vectors_config['indexArn']
-                # Note: indexName should NOT be included when indexArn is provided
-            }
-        }
+        knowledgeBaseConfiguration=kb_config,
+        storageConfiguration=storage_config
     )
     
     kb = response['knowledgeBase']
