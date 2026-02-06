@@ -129,6 +129,7 @@ jobs:
         AGENT_NAME: ${{ steps.params.outputs.agent_name }}
         ENVIRONMENT: ${{ steps.params.outputs.environment }}
         FOUNDATION_MODEL: ${{ steps.params.outputs.foundation_model }}
+        KB_ROLE_ARN: arn:aws:iam::767397690934:role/datazone_usr_role_csmtso44tnnlbb_5yhcmrrp0v7acn
       run: |
         export PYTHONUNBUFFERED=TRUE
         export SAGEMAKER_PROJECT_NAME_ID="${SAGEMAKER_PROJECT_NAME}-${SAGEMAKER_PROJECT_ID}"

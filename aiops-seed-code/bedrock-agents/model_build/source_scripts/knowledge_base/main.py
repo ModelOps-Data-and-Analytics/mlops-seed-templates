@@ -532,10 +532,15 @@ def main():
                 output["vectors_index"] = vectors_index
 
                 # 3. Get/Create IAM role for KB
+                # Usar el rol de DataZone para Bedrock KB
                 kb_role_arn = os.environ.get('KB_ROLE_ARN')
                 if not kb_role_arn:
-                    kb_role_arn = f"arn:aws:iam::{account_id}:role/{args.agent_name}-kb-role"
-                    logger.info(f"Usando rol: {kb_role_arn}")
+                    # Forzar el rol de DataZone
+                    kb_role_arn = "arn:aws:iam::767397690934:role/datazone_usr_role_csmtso44tnnlbb_5yhcmrrp0v7acn"
+                    logger.info("Usando rol DataZone para Bedrock KB: %s", kb_role_arn)
+                else:
+                    logger.info("Usando rol de KB definido en KB_ROLE_ARN: %s", kb_role_arn)
+                # Documentación: Este rol debe tener trust policy para bedrock.amazonaws.com y permisos S3/S3Vectors.
 
                 # 4. Get embedding model ARN
                 embedding_model_arn = f"arn:aws:bedrock:{args.region}::foundation-model/amazon.titan-embed-text-v2:0"
