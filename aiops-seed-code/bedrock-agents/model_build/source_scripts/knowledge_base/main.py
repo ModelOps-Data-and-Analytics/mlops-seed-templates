@@ -7,8 +7,16 @@ import subprocess
 import sys
 import time
 
+
 # Install boto3 with Bedrock support (container may have old version)
-subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "boto3>=1.34.0", "botocore>=1.34.0"])
+try:
+    subprocess.check_call([
+        sys.executable, "-m", "pip", "install", "-q", "boto3>=1.34.0", "botocore>=1.34.0"
+    ])
+    print("Successfully installed/updated boto3 and botocore for Bedrock support.")
+except subprocess.CalledProcessError as e:
+    print(f"Error installing boto3/botocore: {e}")
+    sys.exit(1)
 
 import boto3
 import yaml
@@ -40,43 +48,82 @@ def get_existing_knowledge_base(bedrock_agent_client, kb_name: str) -> dict | No
     return None
 
 
-def ensure_s3_vectors_bucket(s3_client, bucket_name: str, region: str) -> str:
-    """Ensure S3 bucket exists for S3 Vectors storage.
-    
+def ensure_s3_vectors_storage(
+    s3vectors_client,
+    bucket_name: str,
+    index_name: str,
+    region: str,
+    account_id: str,
+    embedding_dimension: int = 1024
+) -> dict:
+    """Ensure S3 Vector bucket and index exist for Knowledge Base storage.
+
     Args:
-        s3_client: S3 client
-        bucket_name: Name for the bucket
+        s3vectors_client: S3 Vectors client
+        bucket_name: Name for the vector bucket
+        index_name: Name for the vector index
         region: AWS region
-        
+        account_id: AWS account ID
+        embedding_dimension: Dimension of embedding vectors (default 1024 for Titan v2)
+
     Returns:
-        Bucket ARN
+        Dict with vectorBucketArn, indexArn, indexName
     """
-    logger.info(f"Ensuring S3 Vectors bucket exists: {bucket_name}")
-    
+    logger.info(f"Setting up S3 Vectors storage: {bucket_name}/{index_name}")
+
+    # 1. Create or get vector bucket
     try:
-        s3_client.head_bucket(Bucket=bucket_name)
-        logger.info(f"Using existing bucket: {bucket_name}")
+        s3vectors_client.get_vector_bucket(vectorBucketName=bucket_name)
+        logger.info(f"Using existing vector bucket: {bucket_name}")
     except ClientError as e:
-        if e.response['Error']['Code'] == '404':
-            logger.info(f"Creating S3 bucket: {bucket_name}")
-            if region == 'us-east-1':
-                s3_client.create_bucket(Bucket=bucket_name)
-            else:
-                s3_client.create_bucket(
-                    Bucket=bucket_name,
-                    CreateBucketConfiguration={'LocationConstraint': region}
-                )
-            
-            # Enable versioning for S3 Vectors
-            s3_client.put_bucket_versioning(
-                Bucket=bucket_name,
-                VersioningConfiguration={'Status': 'Enabled'}
-            )
-            logger.info(f"Created bucket with versioning: {bucket_name}")
+        if e.response['Error']['Code'] in ['NoSuchVectorBucket', 'ResourceNotFoundException']:
+            logger.info(f"Creating vector bucket: {bucket_name}")
+            s3vectors_client.create_vector_bucket(vectorBucketName=bucket_name)
+            logger.info(f"Created vector bucket: {bucket_name}")
         else:
             raise
-    
-    return f"arn:aws:s3:::{bucket_name}"
+
+    # 2. Create or get vector index
+    try:
+        index_response = s3vectors_client.get_index(
+            vectorBucketName=bucket_name,
+            indexName=index_name
+        )
+        logger.info(f"Using existing vector index: {index_name}")
+    except ClientError as e:
+        if e.response['Error']['Code'] in ['NoSuchIndex', 'ResourceNotFoundException']:
+            logger.info(f"Creating vector index: {index_name} (dimension={embedding_dimension})")
+            s3vectors_client.create_index(
+                vectorBucketName=bucket_name,
+                indexName=index_name,
+                dimension=embedding_dimension,
+                distanceMetric="cosine",
+                dataType="float32",
+                metadataConfiguration={
+                    "nonFilterableMetadataKeys": [
+                        "AMAZON_BEDROCK_TEXT",
+                        "AMAZON_BEDROCK_METADATA"
+                    ]
+                }
+            )
+            logger.info(f"Created vector index: {index_name}")
+            # Wait for index to be ready
+            time.sleep(5)
+        else:
+            raise
+
+    # Build ARNs
+    vector_bucket_arn = f"arn:aws:s3vectors:{region}:{account_id}:vector-bucket/{bucket_name}"
+    index_arn = f"arn:aws:s3vectors:{region}:{account_id}:vector-bucket/{bucket_name}/index/{index_name}"
+
+    logger.info(f"Vector Bucket ARN: {vector_bucket_arn}")
+    logger.info(f"Index ARN: {index_arn}")
+
+    return {
+        "vectorBucketArn": vector_bucket_arn,
+        "indexArn": index_arn,
+        "indexName": index_name
+    }
 
 
 def create_knowledge_base(
@@ -85,25 +132,27 @@ def create_knowledge_base(
     description: str,
     role_arn: str,
     embedding_model_arn: str,
-    bucket_arn: str,
+    s3_vectors_config: dict,
     region: str
 ) -> dict:
     """Create a new knowledge base with S3 Vectors storage.
-    
+
     Args:
         bedrock_agent_client: Bedrock Agent client
         kb_name: Knowledge base name
         description: Description
         role_arn: IAM role ARN
         embedding_model_arn: Embedding model ARN
-        bucket_arn: S3 Vectors bucket ARN
+        s3_vectors_config: Dict with vectorBucketArn, indexArn, indexName
         region: AWS region
-        
+
     Returns:
         Knowledge base details
     """
     logger.info(f"Creating knowledge base with S3 Vectors: {kb_name}")
-    
+    logger.info(f"  Vector Bucket: {s3_vectors_config['vectorBucketArn']}")
+    logger.info(f"  Index: {s3_vectors_config['indexName']}")
+
     response = bedrock_agent_client.create_knowledge_base(
         name=kb_name,
         description=description,
@@ -115,9 +164,11 @@ def create_knowledge_base(
             }
         },
         storageConfiguration={
-            'type': 'S3',
+            'type': 'S3_VECTORS',
             's3VectorsConfiguration': {
-                'bucketArn': bucket_arn
+                'vectorBucketArn': s3_vectors_config['vectorBucketArn'],
+                'indexArn': s3_vectors_config['indexArn'],
+                'indexName': s3_vectors_config['indexName']
             }
         }
     )
@@ -177,7 +228,7 @@ def create_data_source(
         name=data_source_name,
         dataSourceConfiguration={
             'type': 'S3',
-            's3VectorsConfiguration': {
+            's3Configuration': {
                 'bucketArn': f"arn:aws:s3:::{bucket}",
                 'inclusionPrefixes': [prefix] if prefix else []
             }
@@ -403,27 +454,31 @@ def main():
     else:
         try:
             bedrock_agent = boto3.client('bedrock-agent', region_name=args.region)
-            s3 = boto3.client('s3', region_name=args.region)
+            s3vectors = boto3.client('s3vectors', region_name=args.region)
             sts = boto3.client('sts')
-            
+
             account_id = sts.get_caller_identity()['Account']
-            
+
             kb_name = f"{args.agent_name}-kb"
-            vectors_bucket = f"{args.agent_name}-vectors-{account_id}-{args.region}"
-            
+            vectors_bucket = f"{args.agent_name}-vectors-{account_id}"
+            vectors_index = f"{args.agent_name}-index"
+
+            # Embedding dimension for Titan Embed Text v2 is 1024
+            embedding_dimension = 1024
+
             # 1. Check if KB exists
             existing_kb = get_existing_knowledge_base(bedrock_agent, kb_name)
-            
+
             if existing_kb:
                 kb_id = existing_kb['knowledgeBaseId']
                 output["knowledge_base_id"] = kb_id
                 output["status"] = "existing"
                 logger.info(f"Usando KB existente: {kb_id}")
-                
+
                 # Get existing data source
                 ds_response = bedrock_agent.list_data_sources(knowledgeBaseId=kb_id)
                 data_sources = ds_response.get('dataSourceSummaries', [])
-                
+
                 if data_sources:
                     data_source_id = data_sources[0]['dataSourceId']
                     output["data_source_id"] = data_source_id
@@ -439,33 +494,41 @@ def main():
                     data_source_id = ds['dataSourceId']
                     output["data_source_id"] = data_source_id
             else:
-                # 2. Ensure S3 Vectors bucket exists
-                bucket_arn = ensure_s3_vectors_bucket(s3, vectors_bucket, args.region)
+                # 2. Setup S3 Vectors storage (bucket + index)
+                s3_vectors_config = ensure_s3_vectors_storage(
+                    s3vectors,
+                    vectors_bucket,
+                    vectors_index,
+                    args.region,
+                    account_id,
+                    embedding_dimension=embedding_dimension
+                )
                 output["vectors_bucket"] = vectors_bucket
-                
+                output["vectors_index"] = vectors_index
+
                 # 3. Get/Create IAM role for KB
                 kb_role_arn = os.environ.get('KB_ROLE_ARN')
                 if not kb_role_arn:
                     kb_role_arn = f"arn:aws:iam::{account_id}:role/{args.agent_name}-kb-role"
                     logger.info(f"Usando rol: {kb_role_arn}")
-                
+
                 # 4. Get embedding model ARN
                 embedding_model_arn = f"arn:aws:bedrock:{args.region}::foundation-model/amazon.titan-embed-text-v2:0"
-                
-                # 5. Create Knowledge Base
+
+                # 5. Create Knowledge Base with S3 Vectors
                 kb = create_knowledge_base(
                     bedrock_agent,
                     kb_name,
                     f"Knowledge Base para {args.agent_name}",
                     kb_role_arn,
                     embedding_model_arn,
-                    bucket_arn,
+                    s3_vectors_config,
                     args.region
                 )
                 kb_id = kb['knowledgeBaseId']
                 output["knowledge_base_id"] = kb_id
                 output["status"] = "created"
-                
+
                 # 6. Create Data Source pointing to S3 docs
                 ds = create_data_source(
                     bedrock_agent, kb_id, args.s3_uri,
