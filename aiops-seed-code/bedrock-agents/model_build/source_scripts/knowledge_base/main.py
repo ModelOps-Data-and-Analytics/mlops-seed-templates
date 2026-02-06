@@ -72,12 +72,18 @@ def ensure_s3_vectors_storage(
     logger.info(f"Setting up S3 Vectors storage: {bucket_name}/{index_name}")
 
     # 1. Create or get vector bucket
+    # Note: S3 Vectors raises NotFoundException (not ClientError) when bucket doesn't exist
     try:
         s3vectors_client.get_vector_bucket(vectorBucketName=bucket_name)
         logger.info(f"Using existing vector bucket: {bucket_name}")
+    except s3vectors_client.exceptions.NotFoundException:
+        logger.info(f"Vector bucket not found, creating: {bucket_name}")
+        s3vectors_client.create_vector_bucket(vectorBucketName=bucket_name)
+        logger.info(f"Created vector bucket: {bucket_name}")
     except ClientError as e:
-        if e.response['Error']['Code'] in ['NoSuchVectorBucket', 'ResourceNotFoundException']:
-            logger.info(f"Creating vector bucket: {bucket_name}")
+        error_code = e.response['Error']['Code']
+        if error_code in ['NoSuchVectorBucket', 'ResourceNotFoundException']:
+            logger.info(f"Creating vector bucket: {bucket_name} (error was: {error_code})")
             s3vectors_client.create_vector_bucket(vectorBucketName=bucket_name)
             logger.info(f"Created vector bucket: {bucket_name}")
         else:
@@ -90,9 +96,28 @@ def ensure_s3_vectors_storage(
             indexName=index_name
         )
         logger.info(f"Using existing vector index: {index_name}")
+    except s3vectors_client.exceptions.NotFoundException:
+        logger.info(f"Vector index not found, creating: {index_name} (dimension={embedding_dimension})")
+        s3vectors_client.create_index(
+            vectorBucketName=bucket_name,
+            indexName=index_name,
+            dimension=embedding_dimension,
+            distanceMetric="cosine",
+            dataType="float32",
+            metadataConfiguration={
+                "nonFilterableMetadataKeys": [
+                    "AMAZON_BEDROCK_TEXT",
+                    "AMAZON_BEDROCK_METADATA"
+                ]
+            }
+        )
+        logger.info(f"Created vector index: {index_name}")
+        # Wait for index to be ready
+        time.sleep(5)
     except ClientError as e:
-        if e.response['Error']['Code'] in ['NoSuchIndex', 'ResourceNotFoundException']:
-            logger.info(f"Creating vector index: {index_name} (dimension={embedding_dimension})")
+        error_code = e.response['Error']['Code']
+        if error_code in ['NoSuchIndex', 'ResourceNotFoundException']:
+            logger.info(f"Creating vector index: {index_name} (dimension={embedding_dimension}, error was: {error_code})")
             s3vectors_client.create_index(
                 vectorBucketName=bucket_name,
                 indexName=index_name,
