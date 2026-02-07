@@ -31,7 +31,7 @@ def get_pipeline(
     model_package_group_name: Optional[str] = None,
     bucket_kms_id: Optional[str] = None,
     sagemaker_session: Optional[sagemaker.Session] = None,
-    foundation_model: str = "anthropic.claude-3-7-sonnet-20250219-v1:0",
+    foundation_model: str = "us.anthropic.claude-3-7-sonnet-20250219-v1:0",
 ) -> Pipeline:
     """Creates a SageMaker Pipeline for building Bedrock Agents.
 
