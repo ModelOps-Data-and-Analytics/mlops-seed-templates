@@ -25,7 +25,7 @@ on:
       foundation_model:
         description: 'Foundation model ID'
         required: true
-        default: 'anthropic.claude-3-7-sonnet-20250219-v1:0'
+        default: 'us.anthropic.claude-3-7-sonnet-20250219-v1:0'
   push:
     branches: [ main ]
     paths:
@@ -103,7 +103,7 @@ jobs:
         else
           echo "agent_name=customer-service-agent" >> $GITHUB_OUTPUT
           echo "environment=dev" >> $GITHUB_OUTPUT
-          echo "foundation_model=anthropic.claude-3-7-sonnet-20250219-v1:0" >> $GITHUB_OUTPUT
+          echo "foundation_model=us.anthropic.claude-3-7-sonnet-20250219-v1:0" >> $GITHUB_OUTPUT
         fi
     
     - name: Upload source scripts to S3
