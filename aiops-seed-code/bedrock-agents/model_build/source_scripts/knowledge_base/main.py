@@ -298,6 +298,294 @@ def create_data_source(
     return ds
 
 
+# =============================================================================
+# OpenSearch Serverless Functions (Fallback when S3 Vectors fails)
+# =============================================================================
+
+def ensure_opensearch_serverless_collection(
+    aoss_client,
+    collection_name: str,
+    region: str,
+    account_id: str,
+    kb_role_arn: str
+) -> dict:
+    """Create or get OpenSearch Serverless collection for Knowledge Base.
+
+    Args:
+        aoss_client: OpenSearch Serverless client
+        collection_name: Name for the collection
+        region: AWS region
+        account_id: AWS account ID
+        kb_role_arn: IAM role ARN for KB access
+
+    Returns:
+        Dict with collectionArn, collectionEndpoint
+    """
+    logger.info(f"Setting up OpenSearch Serverless collection: {collection_name}")
+
+    # Check if collection exists
+    try:
+        response = aoss_client.batch_get_collection(names=[collection_name])
+        if response.get('collectionDetails'):
+            collection = response['collectionDetails'][0]
+            logger.info(f"Using existing collection: {collection['name']}")
+            return {
+                'collectionArn': collection['arn'],
+                'collectionEndpoint': collection['collectionEndpoint']
+            }
+    except Exception as e:
+        logger.info(f"Collection not found or error checking: {e}")
+
+    # Create security policy (encryption)
+    # Note: OpenSearch Serverless policy names must be <= 32 characters
+    encryption_policy_name = f"{collection_name}-enc"[:32]
+    try:
+        aoss_client.create_security_policy(
+            name=encryption_policy_name,
+            type='encryption',
+            policy=json.dumps({
+                "Rules": [{"ResourceType": "collection", "Resource": [f"collection/{collection_name}"]}],
+                "AWSOwnedKey": True
+            })
+        )
+        logger.info(f"Created encryption policy: {encryption_policy_name}")
+    except ClientError as e:
+        if 'ConflictException' not in str(e):
+            raise
+        logger.info(f"Encryption policy already exists: {encryption_policy_name}")
+
+    # Create network policy
+    network_policy_name = f"{collection_name}-net"[:32]
+    try:
+        aoss_client.create_security_policy(
+            name=network_policy_name,
+            type='network',
+            policy=json.dumps([{
+                "Rules": [{"ResourceType": "collection", "Resource": [f"collection/{collection_name}"]},
+                          {"ResourceType": "dashboard", "Resource": [f"collection/{collection_name}"]}],
+                "AllowFromPublic": True
+            }])
+        )
+        logger.info(f"Created network policy: {network_policy_name}")
+    except ClientError as e:
+        if 'ConflictException' not in str(e):
+            raise
+        logger.info(f"Network policy already exists: {network_policy_name}")
+
+    # Create data access policy
+    access_policy_name = f"{collection_name}-access"[:32]
+    try:
+        aoss_client.create_access_policy(
+            name=access_policy_name,
+            type='data',
+            policy=json.dumps([{
+                "Rules": [
+                    {"ResourceType": "index", "Resource": [f"index/{collection_name}/*"], "Permission": ["aoss:*"]},
+                    {"ResourceType": "collection", "Resource": [f"collection/{collection_name}"], "Permission": ["aoss:*"]}
+                ],
+                "Principal": [
+                    kb_role_arn,
+                    f"arn:aws:iam::{account_id}:root"
+                ]
+            }])
+        )
+        logger.info(f"Created access policy: {access_policy_name}")
+    except ClientError as e:
+        if 'ConflictException' not in str(e):
+            raise
+        logger.info(f"Access policy already exists: {access_policy_name}")
+
+    # Create collection
+    try:
+        response = aoss_client.create_collection(
+            name=collection_name,
+            type='VECTORSEARCH',
+            description=f"Vector store for Bedrock Knowledge Base"
+        )
+        collection_id = response['createCollectionDetail']['id']
+        logger.info(f"Created collection: {collection_name} (ID: {collection_id})")
+    except ClientError as e:
+        if 'ConflictException' not in str(e):
+            raise
+        logger.info(f"Collection already exists: {collection_name}")
+
+    # Wait for collection to be active
+    logger.info("Waiting for collection to become active (this may take 2-3 minutes)...")
+    for attempt in range(30):
+        response = aoss_client.batch_get_collection(names=[collection_name])
+        if response.get('collectionDetails'):
+            collection = response['collectionDetails'][0]
+            status = collection.get('status')
+            if status == 'ACTIVE':
+                logger.info(f"Collection is active: {collection['collectionEndpoint']}")
+                return {
+                    'collectionArn': collection['arn'],
+                    'collectionEndpoint': collection['collectionEndpoint']
+                }
+            elif status == 'FAILED':
+                raise Exception(f"Collection creation failed: {collection}")
+        time.sleep(10)
+
+    raise Exception(f"Timeout waiting for collection {collection_name} to become active")
+
+
+def create_opensearch_index(
+    collection_endpoint: str,
+    index_name: str,
+    region: str,
+    embedding_dimension: int = 1024
+) -> str:
+    """Create vector index in OpenSearch Serverless collection.
+
+    Args:
+        collection_endpoint: OpenSearch Serverless endpoint
+        index_name: Name for the index
+        region: AWS region
+        embedding_dimension: Dimension of embedding vectors
+
+    Returns:
+        Index name
+    """
+    from botocore.auth import SigV4Auth
+    from botocore.awsrequest import AWSRequest
+    import requests
+
+    logger.info(f"Creating OpenSearch index: {index_name}")
+
+    # Build the index URL
+    host = collection_endpoint.replace("https://", "")
+    url = f"https://{host}/{index_name}"
+
+    # Index mapping for vector search
+    index_body = {
+        "settings": {
+            "index": {
+                "knn": True,
+                "knn.algo_param.ef_search": 512
+            }
+        },
+        "mappings": {
+            "properties": {
+                "bedrock-knowledge-base-default-vector": {
+                    "type": "knn_vector",
+                    "dimension": embedding_dimension,
+                    "method": {
+                        "engine": "faiss",
+                        "space_type": "l2",
+                        "name": "hnsw",
+                        "parameters": {}
+                    }
+                },
+                "AMAZON_BEDROCK_TEXT_CHUNK": {"type": "text"},
+                "AMAZON_BEDROCK_METADATA": {"type": "text"}
+            }
+        }
+    }
+
+    # Sign the request
+    session = boto3.Session()
+    credentials = session.get_credentials()
+
+    request = AWSRequest(method='PUT', url=url, data=json.dumps(index_body),
+                         headers={'Content-Type': 'application/json'})
+    SigV4Auth(credentials, 'aoss', region).add_auth(request)
+
+    # Make the request
+    response = requests.put(url, headers=dict(request.headers), data=json.dumps(index_body))
+
+    if response.status_code in [200, 201]:
+        logger.info(f"Created index: {index_name}")
+    elif response.status_code == 400 and 'resource_already_exists_exception' in response.text:
+        logger.info(f"Index already exists: {index_name}")
+    else:
+        logger.warning(f"Index creation response: {response.status_code} - {response.text}")
+
+    return index_name
+
+
+def create_knowledge_base_with_opensearch(
+    bedrock_agent_client,
+    kb_name: str,
+    description: str,
+    role_arn: str,
+    embedding_model_arn: str,
+    opensearch_config: dict,
+    index_name: str
+) -> dict:
+    """Create a new knowledge base with OpenSearch Serverless storage.
+
+    Args:
+        bedrock_agent_client: Bedrock Agent client
+        kb_name: Knowledge base name
+        description: Description
+        role_arn: IAM role ARN
+        embedding_model_arn: Embedding model ARN
+        opensearch_config: Dict with collectionArn, collectionEndpoint
+        index_name: Index name in collection
+
+    Returns:
+        Knowledge base details
+    """
+    logger.info(f"Creating knowledge base with OpenSearch Serverless: {kb_name}")
+    logger.info(f"  Collection ARN: {opensearch_config['collectionArn']}")
+    logger.info(f"  Index Name: {index_name}")
+    logger.info(f"  Role ARN: {role_arn}")
+    logger.info(f"  Embedding Model: {embedding_model_arn}")
+
+    # Build the request configuration
+    kb_config = {
+        'type': 'VECTOR',
+        'vectorKnowledgeBaseConfiguration': {
+            'embeddingModelArn': embedding_model_arn
+        }
+    }
+
+    storage_config = {
+        'type': 'OPENSEARCH_SERVERLESS',
+        'opensearchServerlessConfiguration': {
+            'collectionArn': opensearch_config['collectionArn'],
+            'vectorIndexName': index_name,
+            'fieldMapping': {
+                'vectorField': 'bedrock-knowledge-base-default-vector',
+                'textField': 'AMAZON_BEDROCK_TEXT_CHUNK',
+                'metadataField': 'AMAZON_BEDROCK_METADATA'
+            }
+        }
+    }
+
+    logger.info(f"Knowledge Base Configuration: {kb_config}")
+    logger.info(f"Storage Configuration: {storage_config}")
+
+    response = bedrock_agent_client.create_knowledge_base(
+        name=kb_name,
+        description=description,
+        roleArn=role_arn,
+        knowledgeBaseConfiguration=kb_config,
+        storageConfiguration=storage_config
+    )
+
+    kb = response['knowledgeBase']
+    logger.info(f"Created knowledge base: {kb['knowledgeBaseId']}")
+
+    # Wait for KB to be ready
+    logger.info("Waiting for knowledge base to be ready...")
+    for _ in range(30):
+        kb_response = bedrock_agent_client.get_knowledge_base(
+            knowledgeBaseId=kb['knowledgeBaseId']
+        )
+        status = kb_response['knowledgeBase']['status']
+        if status == 'ACTIVE':
+            logger.info("Knowledge base is active")
+            break
+        elif status == 'FAILED':
+            raise Exception(f"Knowledge base creation failed: {kb_response}")
+        time.sleep(10)
+    else:
+        logger.warning("Knowledge base still creating, continuing...")
+
+    return kb
+
+
 def start_ingestion_job(
     bedrock_agent_client,
     kb_id: str,
@@ -542,19 +830,7 @@ def main():
                     data_source_id = ds['dataSourceId']
                     output["data_source_id"] = data_source_id
             else:
-                # 2. Setup S3 Vectors storage (bucket + index)
-                s3_vectors_config = ensure_s3_vectors_storage(
-                    s3vectors,
-                    vectors_bucket,
-                    vectors_index,
-                    args.region,
-                    account_id,
-                    embedding_dimension=embedding_dimension
-                )
-                output["vectors_bucket"] = vectors_bucket
-                output["vectors_index"] = vectors_index
-
-                # 3. Get/Create IAM role for KB
+                # Get/Create IAM role for KB
                 # Usar el rol de DataZone para Bedrock KB
                 kb_role_arn = os.environ.get('KB_ROLE_ARN')
                 if not kb_role_arn:
@@ -565,24 +841,106 @@ def main():
                     logger.info("Usando rol de KB definido en KB_ROLE_ARN: %s", kb_role_arn)
                 # Documentación: Este rol debe tener trust policy para bedrock.amazonaws.com y permisos S3/S3Vectors.
 
-                # 4. Get embedding model ARN
+                # Get embedding model ARN
                 embedding_model_arn = f"arn:aws:bedrock:{args.region}::foundation-model/amazon.titan-embed-text-v2:0"
 
-                # 5. Create Knowledge Base with S3 Vectors
-                kb = create_knowledge_base(
-                    bedrock_agent,
-                    kb_name,
-                    f"Knowledge Base para {args.agent_name}",
-                    kb_role_arn,
-                    embedding_model_arn,
-                    s3_vectors_config,
-                    args.region
-                )
+                # Try S3 Vectors first, fallback to OpenSearch Serverless if it fails
+                kb = None
+                storage_type_used = None
+
+                try:
+                    logger.info("=" * 50)
+                    logger.info("INTENTANDO CREAR KB CON S3 VECTORS...")
+                    logger.info("=" * 50)
+
+                    # Setup S3 Vectors storage (bucket + index)
+                    s3_vectors_config = ensure_s3_vectors_storage(
+                        s3vectors,
+                        vectors_bucket,
+                        vectors_index,
+                        args.region,
+                        account_id,
+                        embedding_dimension=embedding_dimension
+                    )
+                    output["vectors_bucket"] = vectors_bucket
+                    output["vectors_index"] = vectors_index
+
+                    # Create Knowledge Base with S3 Vectors
+                    kb = create_knowledge_base(
+                        bedrock_agent,
+                        kb_name,
+                        f"Knowledge Base para {args.agent_name}",
+                        kb_role_arn,
+                        embedding_model_arn,
+                        s3_vectors_config,
+                        args.region
+                    )
+                    storage_type_used = "S3_VECTORS"
+                    logger.info("✅ Knowledge Base creada exitosamente con S3 Vectors")
+
+                except Exception as s3v_error:
+                    error_msg = str(s3v_error)
+                    logger.warning("=" * 50)
+                    logger.warning(f"⚠️ S3 VECTORS FALLÓ: {error_msg}")
+                    logger.warning("Intentando fallback a OpenSearch Serverless...")
+                    logger.warning("=" * 50)
+
+                    # Check if it's an InternalServerException or similar error
+                    if "InternalServerException" in error_msg or "Internal" in error_msg or True:  # Fallback for any error
+                        try:
+                            # Create OpenSearch Serverless client
+                            aoss_client = boto3.client('opensearchserverless', region_name=args.region)
+
+                            # Collection name (must be unique and lowercase)
+                            collection_name = f"{args.agent_name}-kb-collection".lower().replace('_', '-')[:32]
+                            index_name = f"{args.agent_name}-index".lower().replace('_', '-')
+
+                            logger.info(f"Creando colección OpenSearch Serverless: {collection_name}")
+
+                            # Create OpenSearch Serverless collection with policies
+                            opensearch_config = ensure_opensearch_serverless_collection(
+                                aoss_client,
+                                collection_name,
+                                args.region,
+                                account_id,
+                                kb_role_arn
+                            )
+
+                            # Create vector index in the collection
+                            create_opensearch_index(
+                                opensearch_config['collectionEndpoint'],
+                                index_name,
+                                args.region,
+                                embedding_dimension=embedding_dimension
+                            )
+
+                            # Create Knowledge Base with OpenSearch Serverless
+                            kb = create_knowledge_base_with_opensearch(
+                                bedrock_agent,
+                                kb_name,
+                                f"Knowledge Base para {args.agent_name}",
+                                kb_role_arn,
+                                embedding_model_arn,
+                                opensearch_config,
+                                index_name
+                            )
+                            storage_type_used = "OPENSEARCH_SERVERLESS"
+                            output["opensearch_collection"] = collection_name
+                            output["opensearch_index"] = index_name
+                            logger.info("✅ Knowledge Base creada exitosamente con OpenSearch Serverless (fallback)")
+
+                        except Exception as oss_error:
+                            logger.error(f"❌ OpenSearch Serverless también falló: {oss_error}")
+                            raise Exception(f"No se pudo crear KB con ningún backend. S3 Vectors error: {s3v_error}. OpenSearch error: {oss_error}")
+                    else:
+                        raise s3v_error
+
                 kb_id = kb['knowledgeBaseId']
                 output["knowledge_base_id"] = kb_id
                 output["status"] = "created"
+                output["storage_type"] = storage_type_used
 
-                # 6. Create Data Source pointing to S3 docs
+                # Create Data Source pointing to S3 docs
                 ds = create_data_source(
                     bedrock_agent, kb_id, args.s3_uri,
                     f"{args.agent_name}-datasource",
@@ -661,6 +1019,7 @@ def main():
     logger.info(f"  KB ID: {output.get('knowledge_base_id')}")
     logger.info(f"  Data Source ID: {output.get('data_source_id')}")
     logger.info(f"  Status: {output.get('status')}")
+    logger.info(f"  Storage Type: {output.get('storage_type', 'N/A')}")
     logger.info(f"  Ingesta: {output['ingestion'].get('status')}")
     if output['ingestion'].get('documents_indexed'):
         logger.info(f"  Docs indexados: {output['ingestion']['documents_indexed']}")

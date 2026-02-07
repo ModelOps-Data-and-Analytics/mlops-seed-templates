@@ -112,7 +112,7 @@ jobs:
       run: |
         echo "Uploading source scripts to S3..."
         aws s3 cp --recursive source_scripts/ s3://${ARTIFACT_BUCKET}/bedrock-agents/source_scripts/
-        aws s3 cp --recursive ml_pipelines/agent_config/ s3://${ARTIFACT_BUCKET}/BedrockAgent/config/
+        aws s3 cp --recursive ml_pipelines/agent_config/ s3://${ARTIFACT_BUCKET}/genai-bedrock-agent/config/
     
     - name: Run SageMaker Pipeline
       env:
