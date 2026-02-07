@@ -66,6 +66,33 @@ def get_pipeline(
         model_package_group_name = f"aiops-{project_id}-agents"
 
     # ==========================================================================
+    # Subir archivos requeridos a S3 (test cases, config, lambda packages)
+    # ==========================================================================
+    s3_client = boto3.client('s3', region_name=region)
+
+    # Subir test cases desde el repo
+    test_cases_local = os.path.join(
+        os.path.dirname(__file__), '..', 'test_cases', 'test_cases.json'
+    )
+    if os.path.exists(test_cases_local):
+        s3_client.upload_file(
+            test_cases_local,
+            default_bucket,
+            f"{base_job_prefix}/test-cases/test_cases.json"
+        )
+
+    # Subir agent_schema.json desde config
+    agent_schema_local = os.path.join(
+        os.path.dirname(__file__), '..', 'agent_config', 'agent_schema.json'
+    )
+    if os.path.exists(agent_schema_local):
+        s3_client.upload_file(
+            agent_schema_local,
+            default_bucket,
+            f"{base_job_prefix}/config/agent_schema.json"
+        )
+
+    # ==========================================================================
     # Pipeline Parameters
     # ==========================================================================
     param_agent_name = ParameterString(

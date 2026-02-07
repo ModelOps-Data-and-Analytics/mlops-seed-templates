@@ -1,0 +1,32 @@
+[
+  {
+    "name": "saludo",
+    "input": "Hola, necesito ayuda con mi pedido",
+    "expected_keywords": ["ayuda", "asistir", "pedido"],
+    "expected_behavior": "respuesta_saludo"
+  },
+  {
+    "name": "estado_pedido",
+    "input": "Cuál es el estado de mi pedido #12345?",
+    "expected_keywords": ["pedido", "estado"],
+    "expected_behavior": "debe_usar_accion"
+  },
+  {
+    "name": "politica_devolucion",
+    "input": "Cuál es su política de devolución?",
+    "expected_keywords": ["devolucion", "politica", "dias"],
+    "expected_behavior": "debe_buscar_kb"
+  },
+  {
+    "name": "consulta_producto",
+    "input": "Cuéntame sobre su producto widget premium",
+    "expected_keywords": ["producto", "widget"],
+    "expected_behavior": "debe_buscar_kb"
+  },
+  {
+    "name": "solicitud_reembolso",
+    "input": "Quiero solicitar un reembolso para el pedido #98765",
+    "expected_keywords": ["reembolso", "devolucion", "proceso"],
+    "expected_behavior": "debe_usar_accion"
+  }
+]
