@@ -117,7 +117,7 @@ def get_pipeline(
     )
     param_enable_knowledge_base = ParameterString(
         name="EnableKnowledgeBase",
-        default_value="true"
+        default_value="false"  # Deshabilitado hasta resolver problemas con S3 Vectors/OpenSearch
     )
     param_enable_action_groups = ParameterString(
         name="EnableActionGroups",
