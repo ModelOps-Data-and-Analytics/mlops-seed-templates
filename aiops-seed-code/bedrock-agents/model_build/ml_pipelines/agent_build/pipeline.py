@@ -25,7 +25,7 @@ def get_pipeline(
     role: Optional[str] = None,
     default_bucket: Optional[str] = None,
     pipeline_name: str = "BedrockAgentPipeline",
-    base_job_prefix: str = "BedrockAgent",
+    base_job_prefix: str = "genai-bedrock-agent",
     agent_name: str = "customer-service-agent",
     project_id: str = "default-project",
     model_package_group_name: Optional[str] = None,
