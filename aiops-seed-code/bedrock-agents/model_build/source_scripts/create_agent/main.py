@@ -92,7 +92,10 @@ def create_agent_resource_role(iam_client, agent_name: str, region: str) -> str:
                     "bedrock:InvokeModel",
                     "bedrock:InvokeModelWithResponseStream"
                 ],
-                "Resource": "arn:aws:bedrock:*::foundation-model/*"
+                "Resource": [
+                    "arn:aws:bedrock:*::foundation-model/*",
+                    "arn:aws:bedrock:*:*:inference-profile/*"
+                ]
             },
             {
                 "Effect": "Allow",

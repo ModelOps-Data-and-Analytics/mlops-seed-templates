@@ -29,26 +29,39 @@ logger = logging.getLogger(__name__)
 
 def validate_foundation_model(model_id: str, region: str) -> bool:
     """Validate that the foundation model is available.
-    
+
+    Supports both base model IDs (e.g. anthropic.claude-3-7-sonnet-20250219-v1:0)
+    and cross-region inference profile IDs (e.g. us.anthropic.claude-3-7-sonnet-20250219-v1:0).
+
     Args:
-        model_id: Foundation model ID
+        model_id: Foundation model ID (base or cross-region inference profile)
         region: AWS region
-        
+
     Returns:
         True if model is available
     """
+    import re
     bedrock = boto3.client('bedrock', region_name=region)
-    
+
     try:
         response = bedrock.list_foundation_models()
         available_models = [m['modelId'] for m in response['modelSummaries']]
-        
+
+        # Direct match against base model IDs
         if model_id in available_models:
             logger.info(f"Foundation model {model_id} is available")
             return True
-        else:
-            logger.error(f"Foundation model {model_id} not found. Available models: {available_models[:5]}...")
-            return False
+
+        # Check if it's a cross-region inference profile (e.g. us.anthropic.claude-...)
+        cross_region_match = re.match(r'^(us|eu|ap)\.(.*)', model_id)
+        if cross_region_match:
+            base_model_id = cross_region_match.group(2)
+            if base_model_id in available_models:
+                logger.info(f"Foundation model {model_id} is available (cross-region inference profile, base model: {base_model_id})")
+                return True
+
+        logger.error(f"Foundation model {model_id} not found. Available models: {available_models[:5]}...")
+        return False
     except Exception as e:
         logger.error(f"Error checking foundation model: {e}")
         return False

@@ -5,6 +5,7 @@ and evaluating a Bedrock Agent with optional Knowledge Base and Action Groups.
 """
 
 import os
+import zipfile
 from typing import Optional
 
 import boto3
