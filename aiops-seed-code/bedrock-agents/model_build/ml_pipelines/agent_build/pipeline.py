@@ -93,6 +93,17 @@ def get_pipeline(
             f"{base_job_prefix}/config/agent_schema.json"
         )
 
+    # Subir agent_instruction.txt desde config
+    agent_instruction_local = os.path.join(
+        os.path.dirname(__file__), '..', 'agent_config', 'agent_instruction.txt'
+    )
+    if os.path.exists(agent_instruction_local):
+        s3_client.upload_file(
+            agent_instruction_local,
+            default_bucket,
+            f"{base_job_prefix}/config/agent_instruction.txt"
+        )
+
     # ==========================================================================
     # Pipeline Parameters
     # ==========================================================================
