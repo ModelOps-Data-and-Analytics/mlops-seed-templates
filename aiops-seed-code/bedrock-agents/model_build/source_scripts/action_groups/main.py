@@ -147,13 +147,15 @@ def deploy_lambda_function(
     return function_arn
 
 
-def add_bedrock_permission(lambda_client, function_name: str, agent_id: str) -> None:
+def add_bedrock_permission(lambda_client, function_name: str, agent_id: str, region: str, account_id: str) -> None:
     """Add permission for Bedrock to invoke Lambda.
 
     Args:
         lambda_client: Lambda client
         function_name: Function name
         agent_id: Bedrock Agent ID
+        region: AWS region
+        account_id: AWS account ID
     """
     statement_id = f"AllowBedrockAgent-{agent_id}"
 
@@ -163,7 +165,7 @@ def add_bedrock_permission(lambda_client, function_name: str, agent_id: str) -> 
             StatementId=statement_id,
             Action='lambda:InvokeFunction',
             Principal='bedrock.amazonaws.com',
-            SourceArn=f"arn:aws:bedrock:*:*:agent/{agent_id}"
+            SourceArn=f"arn:aws:bedrock:{region}:{account_id}:agent/{agent_id}"
         )
         logger.info(f"Added Bedrock permission to Lambda: {statement_id}")
     except ClientError as e:
@@ -407,7 +409,7 @@ def main():
                 # 6. Add Bedrock permission to Lambda
                 logger.info("")
                 logger.info("Step 6: Adding Bedrock permissions to Lambda...")
-                add_bedrock_permission(lambda_client, function_name, agent_id)
+                add_bedrock_permission(lambda_client, function_name, agent_id, args.region, account_id)
 
                 # 7. Create Action Group
                 logger.info("")
