@@ -484,6 +484,13 @@ def get_pipeline(
     step_register = ProcessingStep(
         name="RegisterAgentModel",
         processor=register_processor,
+        inputs=[
+            ProcessingInput(
+                source=f"s3://{default_bucket}/{base_job_prefix}/evaluation/",
+                destination="/opt/ml/processing/input/evaluation",
+                input_name="evaluation"
+            ),
+        ],
         outputs=[
             ProcessingOutput(
                 output_name="register_output",
@@ -497,6 +504,8 @@ def get_pipeline(
             "--model-package-group-name", model_package_group_name,
             "--approval-status", param_model_approval_status,
             "--region", region,
+            "--s3-bucket", default_bucket,
+            "--s3-prefix", base_job_prefix,
         ],
     )
 

@@ -8,7 +8,7 @@ MODEL_PACKAGE_GROUP_NAME = "BedrockAgentPackageGroup"
 
 # Agent defaults
 DEFAULT_IDLE_SESSION_TTL = 1800  # 30 minutes
-DEFAULT_FOUNDATION_MODEL = "anthropic.claude-3-7-sonnet-20250219-v1:0"
+DEFAULT_FOUNDATION_MODEL = "amazon.nova-pro-v1:0"
 
 # Alias names
 ALIAS_STAGING = "staging"

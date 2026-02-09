@@ -104,13 +104,18 @@ class DeployAgentStack(Stack):
             )
         )
         
-        # S3 and STS permissions for KB creation
+        # S3, S3 Vectors, and STS permissions for KB creation
         role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 actions=[
                     "s3:GetObject",
                     "s3:ListBucket",
+                    "s3vectors:CreateVectorBucket",
+                    "s3vectors:GetVectorBucket",
+                    "s3vectors:CreateIndex",
+                    "s3vectors:GetIndex",
+                    "s3vectors:DeleteIndex",
                     "sts:GetCallerIdentity"
                 ],
                 resources=["*"]
@@ -230,25 +235,68 @@ def create_knowledge_base(metadata, environment):
     kb_role_arn = metadata.get("kb_role_arn")
     kb_embedding_model = metadata.get("kb_embedding_model")
     kb_description = metadata.get("kb_description", f"Knowledge Base for {environment}")
-    kb_storage_type = metadata.get("kb_storage_type", "S3")
-    
+    kb_storage_type = metadata.get("kb_storage_type", "S3_VECTORS")
+
     if not kb_role_arn or not kb_embedding_model:
         logger.error("Missing kb_role_arn or kb_embedding_model in metadata")
         return None
-    
-    # Target bucket for this environment
+
     region = os.environ.get("AWS_REGION", "us-east-1")
     account_id = boto3.client("sts").get_caller_identity()["Account"]
-    target_bucket = f"sagemaker-{region}-{account_id}"
-    target_prefix = f"knowledge-base-data/{environment}"
-    
+
     logger.info(f"Creating Knowledge Base: {target_kb_name}")
     logger.info(f"  - Embedding model: {kb_embedding_model}")
     logger.info(f"  - Storage type: {kb_storage_type}")
-    logger.info(f"  - Target data location: s3://{target_bucket}/{target_prefix}")
-    
+
     try:
-        # Create KB with same configuration as pipeline
+        # Build storage configuration matching build pipeline
+        if kb_storage_type == "S3_VECTORS":
+            s3vectors_client = boto3.client("s3vectors", region_name=region)
+            bucket_name = f"{target_kb_name}-vectors"
+            index_name = f"{target_kb_name}-index"
+
+            try:
+                s3vectors_client.get_vector_bucket(vectorBucketName=bucket_name)
+            except Exception:
+                s3vectors_client.create_vector_bucket(vectorBucketName=bucket_name)
+
+            try:
+                s3vectors_client.create_index(
+                    vectorBucketName=bucket_name,
+                    indexName=index_name,
+                    dimension=1024,
+                    distanceMetric="cosine",
+                    dataType="float32"
+                )
+                time.sleep(60)
+            except ClientError as e:
+                if e.response["Error"]["Code"] != "ConflictException":
+                    raise
+
+            vector_bucket_arn = f"arn:aws:s3vectors:{region}:{account_id}:vector-bucket/{bucket_name}"
+            index_arn = f"arn:aws:s3vectors:{region}:{account_id}:vector-bucket/{bucket_name}/index/{index_name}"
+
+            storage_config = {
+                "type": "S3_VECTORS",
+                "s3VectorsConfiguration": {
+                    "vectorBucketArn": vector_bucket_arn,
+                    "indexArn": index_arn
+                }
+            }
+        else:
+            storage_config = {
+                "type": "OPENSEARCH_SERVERLESS",
+                "opensearchServerlessConfiguration": {
+                    "collectionArn": f"arn:aws:aoss:{region}:{account_id}:collection/{target_kb_name}",
+                    "fieldMapping": {
+                        "metadataField": "metadata",
+                        "textField": "text",
+                        "vectorField": "vector"
+                    },
+                    "vectorIndexName": f"{target_kb_name}-index"
+                }
+            }
+
         create_response = bedrock_agent.create_knowledge_base(
             name=target_kb_name,
             description=kb_description,
@@ -256,15 +304,16 @@ def create_knowledge_base(metadata, environment):
             knowledgeBaseConfiguration={
                 "type": "VECTOR",
                 "vectorKnowledgeBaseConfiguration": {
-                    "embeddingModelArn": kb_embedding_model
+                    "embeddingModelArn": kb_embedding_model,
+                    "embeddingModelConfiguration": {
+                        "bedrockEmbeddingModelConfiguration": {
+                            "dimensions": 1024,
+                            "embeddingDataType": "FLOAT32"
+                        }
+                    }
                 }
             },
-            storageConfiguration={
-                "type": kb_storage_type,
-                "s3Configuration": {
-                    "bucketArn": f"arn:aws:s3:::{target_bucket}"
-                }
-            }
+            storageConfiguration=storage_config
         )
         
         kb_id = create_response["knowledgeBase"]["knowledgeBaseId"]
